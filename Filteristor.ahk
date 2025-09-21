@@ -1,24 +1,85 @@
+Menu, Tray, NoStandard
+Menu, Tray, Add, Help, ShowHelp
+Menu, Tray, Add, Exit, ExitApp
+Menu, Tray, Default, Help
+
 #!f::   ; the Filteristor switches to windows or opens recent items with given string
 {
     global ItemList := []
+    global SelectedIndex := 1
+    global CaseSensitive := false
     RecentIndex := []
     RecentIndexBuilt := false
     FilterMode := "openWindows"
 
     Gui, +AlwaysOnTop +ToolWindow
     Gui, Font, s10
-    Gui, Add, Edit, x10 y10 w370 vSearchInput gUpdateList
-    Gui, Add, DropDownList, x+10 yp w120 vModeSelector gModeChanged, openWindows|favorites|bookmarks|recent|word|excel|pdf|directories|filtering ...
-    Gui, Add, ListBox, x10 y+10 w500 h200 vWindowBox
+    Gui, Add, Edit, x10 y10 w280 vSearchInput gUpdateList
+    Gui, Add, Checkbox, x+10 yp w50 h22 vCaseToggle gToggleCase, case
+    Gui, Add, DropDownList, x+8 yp w120 vModeSelector gModeChanged, openWindows|favorites|bookmarks|recent|word|excel|pdf|directories|filtering ...
+    Gui, Add, Button, x+10 yp w22 h22 gShowHelp, ?
+    Gui, Add, ListBox, x10 y+10 w500 h200 vWindowBox gListBoxChanged
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     Gosub, UpdateList
     return
 }
+
+ShowHelp:
+    Gui, -AlwaysOnTop
+    MsgBox, 64, Filteristor Help,
+    (
+Filteristor: Your Friendly Neighborhood Filter Guide
+helps you quickly switch between open windows or launch documents, bookmarks and more.
+
+How to Use:
+ - Start typing to filter the list
+ - Press Tab to auto-complete
+ - Press Down and Up to navigate the list
+ - Press Return to run or bring to front the current selection
+ - Press Shift-Backspace to close the selected window
+ - Press Esc to close the Filteristor
+
+Modes & Shortcuts:
+ - Ctrl+O to switch between your (O)pen windows (default)
+ - Ctrl+F to open one of your (F)avorites
+ - Ctrl+B to open one of your (B)ookmarks
+ - Ctrl+R to open (R)ecently used documents or directories
+ - Ctrl+D to open recently used (D)irectories
+ - Ctrl+P to open recently used (P)df documents
+ - Ctrl+W to open recently used (W)ord documents
+ - Ctrl+X to open recently used e(X)cel sheets
+ - Ctrl+C to toggle (C)ase sensitive search
+ - Ctrl+H to show this beautiful little (H)elp
+)
+    Gui, +AlwaysOnTop
+return
+
 ModeChanged:
 {
     GuiControlGet, FilterMode,, ModeSelector
     Gosub, UpdateList
+    return
+}
+ToggleCase:
+{
+    GuiControlGet, CaseSensitive,, CaseToggle
+    GuiControl,, CaseToggle, % CaseSensitive ? "CaSe" : "case"
+    Gosub, UpdateList
+    return
+}
+ListBoxChanged:
+{
+    GuiControlGet, selectedTitle,, WindowBox
+    SelectedIndex := 0
+    Loop, % ItemList.Length()
+    {
+        if (ItemList[A_Index].title = selectedTitle) {
+            SelectedIndex := A_Index
+            break
+        }
+    }
+    Gosub, selection
     return
 }
 UpdateList:
@@ -34,7 +95,7 @@ UpdateList:
             this_id := idList%A_Index%
             WinGetTitle, title, ahk_id %this_id%
             WinGetClass, class, ahk_id %this_id%
-            if (title != "" && title != "Filteristor" && title != "Program Manager" && InStr(title, FilterText) && class != "PopupHost") {
+            if (title != "" && title != "Filteristor" && title != "Program Manager" && InStr(title, FilterText, CaseSensitive ? 1 : 0) && class != "PopupHost") {
                 cleanTitle := StrReplace(title, "|", ">>>")
                 ItemList.Push({id: this_id, title: cleanTitle})
                 GuiControl,, WindowBox, %cleanTitle%
@@ -52,7 +113,7 @@ UpdateList:
 
             if !FileExist(target)
                 continue
-            if (!InStr(target, FilterText))
+            if (!InStr(target, FilterText, CaseSensitive ? 1 : 0))
                 continue
 
             displayName := StrReplace(A_LoopFileName, ".lnk", "")
@@ -76,7 +137,7 @@ UpdateList:
             if (RegExMatch(line, """name"":\s*""(.*?)""", nameMatch)) {
                 currentName := nameMatch1
             } else if (RegExMatch(line, """url"":\s*""(.*?)""", urlMatch)) {
-                if (InStr(currentName, FilterText)) {
+                if (InStr(currentName, FilterText, CaseSensitive ? 1 : 0)) {
                     ItemList.Push({title: currentName, path: urlMatch1})
                     GuiControl,, WindowBox, %currentName%
                 }
@@ -114,7 +175,7 @@ UpdateList:
                 continue
             if (FilterMode = "directories" && !InStr(FileExist(item.path), "D"))
                 continue
-            if (!InStr(item.title, FilterText))
+            if (!InStr(item.title, FilterText, CaseSensitive ? 1 : 0))
                 continue
 
             ItemList.Push(item)
@@ -128,7 +189,22 @@ UpdateList:
     return
 }
 
-#IfWinActive Filteristor
+Selection:
+{
+    if (SelectedIndex < 1 || SelectedIndex > ItemList.Length())
+        return
+    selectedItem := ItemList[SelectedIndex]
+    if (FilterMode = "openWindows") {
+        itemId := selectedItem.id
+        WinActivate, ahk_id %itemId%
+    } else {
+        Run, % selectedItem.path
+    }
+    Gui, Destroy
+    return
+}
+
+#IfWinActive ahk_class AutoHotkeyGUI
 ^o::
 ^f::
 ^b::
@@ -155,35 +231,29 @@ UpdateList:
     return
 }
 
-~Enter::
+#if !WinExist("Filteristor Help")
+~Enter:: Gosub, selection
+#if
+
+^c::
 {
-    GuiControlGet, selectedTitle,, WindowBox
-    if (selectedTitle != "") {
-        if (FilterMode = "openWindows") {
-            cleanTitle := StrReplace(selectedTitle, ">>>", "|")
-            WinActivate, %cleanTitle%
-        } else if (FilterMode = "bookmarks") {
-            Run, % ItemList[selectedIndex].path
-        } else {
-            selectedIndex := 0
-            Loop, % ItemList.Length()
-            {
-                if (ItemList[A_Index].title = selectedTitle) {
-                    selectedIndex := A_Index
-                    break
-                }
-            }
-            Run, % ItemList[selectedIndex].path
-        }
-        Gui, Destroy
-    }
+    CaseSensitive := !CaseSensitive
+    GuiControl,, CaseToggle, % CaseSensitive ? 1 : 0
+    GuiControl,, CaseToggle, % CaseSensitive ? "CaSe" : "case"
+    Gosub, UpdateList
+    return
+}
+
+^h::
+{
+    Gosub, showHelp
     return
 }
 
 Tab::
 {
     ControlGetFocus, focusedControl, A
-    if (focusedControl != "Edit1")  ; Name des Eingabefelds prüfen
+    if (focusedControl != "Edit1")
         return
 
     GuiControlGet, FilterText,, SearchInput
@@ -197,45 +267,49 @@ Tab::
         Loop, % ItemList.Length()
         {
             title := ItemList[A_Index].title
-            if (StrLen(title) < StrLen(prefix) + 1)
-                return
-
-            char := SubStr(title, StrLen(prefix) + 1, 1)
+            StringGetPos, start, title, %prefix%
+            if (StrLen(title) < start + StrLen(prefix) + 1)
+                return ; one title ended
+            char := SubStr(title, start + StrLen(prefix) + 1, 1)
             if (nextChar = "")
                 nextChar := char
             else if (char != nextChar)
-                return
+                return ; no more matches
         }
         SendInput, %nextChar%
-        Sleep, 10
+        Sleep, 5
         prefix .= nextChar
     }
 
-ControlSetText, Edit1, %prefix%, Filteristor
-SearchInput := prefix
-    Gosub, UpdateList
+    ControlSetText, Edit1, %prefix%, Filteristor
+    SearchInput := prefix
+    return
+}
+
+~+Backspace::
+{
+    if (SelectedIndex < 1 || SelectedIndex > ItemList.Length())
+        return
+
+    selectedItem := ItemList[SelectedIndex]
+
+    if (FilterMode = "openWindows") {
+        itemId := selectedItem.id
+        WinClose, ahk_id %itemId%
+        Gosub, UpdateList
+    }
     return
 }
 
 ~Up::
 ~Down::
 {
-    GuiControlGet, currentSelection,, WindowBox
-    selectedIndex := 0
-    Loop, % ItemList.Length()
-    {
-        if (ItemList[A_Index].title = currentSelection) {
-            selectedIndex := A_Index
-            break
-        }
-    }
-
     if (A_ThisHotkey = "~Up")
-        selectedIndex := Max(1, selectedIndex - 1)
+        SelectedIndex := Max(1, SelectedIndex - 1)
     else
-        selectedIndex := Min(ItemList.Length(), selectedIndex + 1)
+        SelectedIndex := Min(ItemList.Length(), SelectedIndex + 1)
 
-    GuiControl, Choose, WindowBox, %selectedIndex%
+    GuiControl, Choose, WindowBox, %SelectedIndex%
     return
 }
 ~Esc::
@@ -245,3 +319,6 @@ GuiClose:
     Gui, Destroy
     return
 #IfWinActive
+
+ExitApp:
+ExitApp
