@@ -4,7 +4,7 @@
 Filteristor is a lightweight AutoHotkey utility that lets you quickly switch between open windows, recent files, favorites and bookmarks with filtered lists, fast and easy to use with the keyboard alone.
 
 ## Features
-- Hotkey-driven mode switching (Ctrl+O for **O**en windows, Ctrl+B for **B**ookmarks, Ctrl-P for recent **P**dfs, etc.)
+- Hotkey-driven mode switching (Ctrl+O for **O**pen windows, Ctrl+B for **B**ookmarks, Ctrl-P for recent **P**dfs, etc.)
 - Currently 8 modes
 - Live filtering of items via text input with Tab completion
 - Instant activation of selected item via Return
