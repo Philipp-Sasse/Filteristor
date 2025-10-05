@@ -1,9 +1,54 @@
+; the Filteristor switches to windows or opens recent items with given string
+
+global Config := {}
+Config.Launch := "#!f"
+Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
+Config.Modes := {}  ; leeres Map-Objekt
+Config.Modes["^r"] := {name: "Recent", filter: "."}
+Config.Modes["^w"] := {name: "Word", filter: "i)\.doc[xm]?$"}
+Config.Modes["^x"] := {name: "eXcel", filter: "i)\.xls[xm]?$"}
+Config.Modes["^p"] := {name: "Pdf", filter: "i)\.pdf$"}
+
+configFile := A_ScriptDir "\Filteristor.config"
+Loop
+{
+    FileReadLine, line, %configFile%, %A_Index%
+    if ErrorLevel
+        break
+    if RegExMatch(line, "^\s*(\S*) +([^:]*):\s*([^\t]*)(\t+(.*))?$", match)
+    {
+        ;MsgBox, Command "%match1%", target "%match2%", key "%match3%", parameter "%match5%"
+        Switch, match1
+        {
+            Case "Hotkey":
+                Switch, match2
+                {
+                    Case "Launch": Config.Launch := match3
+                    Default: MsgBox, Unknown Hotkey "%match2%" in line %A_Index%
+                }
+            Case "Mode": Config.Modes[match3] := {name: match2, filter: match5}
+            Case "Macros": Config.Modes[match3] := {name: match2, path: match5}
+            Case "Path": Config.Path[match2] := match3
+            Default:
+                MsgBox, Unknown command %match1% in line %A_Index%
+        }
+    }
+    else
+        MsgBox, 4, , Line #%A_Index%: Cannot parse "%line%". Continue?
+    IfMsgBox, No
+        return
+}
+modeList := "openWindows|favorites|bookmarks|directories"
+for hotkey, mode in Config.Modes
+    modeList .= "|" mode.name
 Menu, Tray, NoStandard
 Menu, Tray, Add, Help, ShowHelp
 Menu, Tray, Add, Exit, ExitApp
 Menu, Tray, Default, Help
 
-#!f::   ; the Filteristor switches to windows or opens recent items with given string
+Hotkey, % Config.Launch, LaunchFilteristor
+return
+LaunchFilteristor:
 {
     global ItemList := []
     global SelectedIndex := 1
@@ -16,11 +61,21 @@ Menu, Tray, Default, Help
     Gui, Font, s10
     Gui, Add, Edit, x10 y10 w280 vSearchInput gUpdateList
     Gui, Add, Checkbox, x+10 yp w50 h22 vCaseToggle gToggleCase, case
-    Gui, Add, DropDownList, x+8 yp w120 vModeSelector gModeChanged, openWindows|favorites|bookmarks|recent|word|excel|pdf|directories|filtering ...
+    Gui, Add, DropDownList, x+8 yp w120 vModeSelector gModeChanged, %modeList%
     Gui, Add, Button, x+10 yp w22 h22 gShowHelp, ?
     Gui, Add, ListBox, x10 y+10 w500 h200 vWindowBox gListBoxChanged
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
+    for hotkey, mode in Config.Modes
+    {
+        if (hotkey != "^w" && hotkey != "^x" && hotkey != "^p" && hotkey != "^r")
+            Hotkey, %hotkey%, HandleModeHotkey
+    }
+    for hotkey, mode in Config.Macros
+    {
+        if (hotkey != "^w" && hotkey != "^x" && hotkey != "^p" && hotkey != "^r")
+            Hotkey, %hotkey%, HandleModeHotkey
+    }
     Gosub, UpdateList
     return
 }
@@ -84,6 +139,7 @@ ListBoxChanged:
 }
 UpdateList:
 {
+    global ItemList, SelectedIndex, CaseSensitive, FilterMode
     GuiControlGet, FilterText,, SearchInput
     ItemList := []
     GuiControl,, WindowBox, |
@@ -109,25 +165,22 @@ UpdateList:
         Loop, Files, %favFolder%\*.lnk
         {
             FileGetShortcut, %A_LoopFileFullPath%, target
-            FileGetTime, modTime, %A_LoopFileFullPath%, M
-
-            if !FileExist(target)
+            if (target = "" || !FileExist(target))
                 continue
             if (!InStr(target, FilterText, CaseSensitive ? 1 : 0))
                 continue
 
+            FileGetTime, modTime, %A_LoopFileFullPath%, M
             displayName := StrReplace(A_LoopFileName, ".lnk", "")
             ItemList.Push({path: target, title: displayName})
             GuiControl,, WindowBox, %displayName%
         }
     } else if (FilterMode = "bookmarks") {
         EnvGet, localAppData, LOCALAPPDATA
-        bookmarksFile := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
+        bookmarksFile := Config.Path["Bookmarks"]
         if !FileExist(bookmarksFile)
             return
-
         FileRead, rawJson, %bookmarksFile%
-        ItemList := []
         GuiControl,, WindowBox, |
 
         currentName := ""
@@ -144,18 +197,27 @@ UpdateList:
                 currentName := ""  ; Reset für nächsten Block
             }
         }
-    } else if (FilterMode ~= "i)recent|word|excel|pdf|directories") {
+    } else { ; if (FilterMode ~= "i)recent|word|excel|pdf|directories") {
+        filterRegex := "."
+        for hotkey, mode in Config.Modes
+        {
+            if (mode.name = FilterMode)
+            {
+                filterRegex := mode.filter
+                break
+            }
+        }
+
+        recentFolder := A_AppData "\Microsoft\Windows\Recent"
         if (!RecentIndexBuilt) {
-            recentFolder := A_AppData "\Microsoft\Windows\Recent"
             tempList := []
 
             Loop, Files, %recentFolder%\*.lnk
             {
                 FileGetShortcut, %A_LoopFileFullPath%, target
-                FileGetTime, modTime, %A_LoopFileFullPath%, M
-
-                if !FileExist(target)
+                if (target = "" || !FileExist(target))
                     continue
+                FileGetTime, modTime, %A_LoopFileFullPath%, M
 
                 displayName := StrReplace(A_LoopFileName, ".lnk", "")
                 tempList.Push({path: target, title: displayName, time: modTime})
@@ -164,16 +226,11 @@ UpdateList:
             RecentIndex := tempList
             RecentIndexBuilt := true
         }
-        recentFolder := A_AppData "\Microsoft\Windows\Recent"
 
         for index, item in RecentIndex {
-            if (FilterMode = "word" && !InStr(item.path, ".docx"))
-                continue
-            if (FilterMode = "excel" && !InStr(item.path, ".xlsx"))
-                continue
-            if (FilterMode = "pdf" && !InStr(item.path, ".pdf"))
-                continue
             if (FilterMode = "directories" && !InStr(FileExist(item.path), "D"))
+                continue
+            if (!RegExMatch(item.path, filterRegex))
                 continue
             if (!InStr(item.title, FilterText, CaseSensitive ? 1 : 0))
                 continue
@@ -204,14 +261,48 @@ Selection:
     return
 }
 
+HandleModeHotkey:
+{
+    ;if !WinActive("ahk_class AutoHotkeyGUI")
+        ;return
+    mode := Config.Modes[A_ThisHotkey]
+    if (mode)
+    {
+        FilterMode := mode.name
+        GuiControl, , ModeSelector, filtering ...
+        GuiControl, ChooseString, ModeSelector, filtering ...
+        Gosub, UpdateList
+        GuiControl, , ModeSelector, |
+        GuiControl, , ModeSelector, %modeList%
+        GuiControl, ChooseString, ModeSelector, %FilterMode%
+        return
+    }
+    mode := Config.Macros[A_ThisHotkey]
+    if (mode)
+    {
+        FilterMode := mode.name
+        Gosub, UpdateList
+        GuiControl, ChooseString, ModeSelector, %FilterMode%
+    }
+    else
+    {
+        MsgBox, Unknown hotkey %A_ThisHotkey%
+        return
+    }
+
+    return
+}
 #IfWinActive ahk_class AutoHotkeyGUI
-^o::
-^f::
-^b::
 ^r::
 ^w::
 ^x::
 ^p::
+    Gosub, HandleModeHotkey
+    return
+
+^o::
+^f::
+^b::
 ^d::
 {
     Switch, SubStr(A_ThisHotkey, StrLen(A_ThisHotkey))
@@ -219,21 +310,14 @@ Selection:
         Case "o": FilterMode := "openWindows"
         Case "f": FilterMode := "favorites"
         Case "b": FilterMode := "bookmarks"
-        Case "r": FilterMode := "recent"
-        Case "p": FilterMode := "pdf"
-        Case "w": FilterMode := "word"
-        Case "x": FilterMode := "excel"
         Case "d": FilterMode := "directories"
     }
-    GuiControl, ChooseString, ModeSelector, filtering ...
     Gosub, UpdateList
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     return
 }
 
-#if !WinExist("Filteristor Help")
 ~Enter:: Gosub, selection
-#if
 
 ^c::
 {
@@ -267,10 +351,10 @@ Tab::
         Loop, % ItemList.Length()
         {
             title := ItemList[A_Index].title
-            StringGetPos, start, title, %prefix%
-            if (StrLen(title) < start + StrLen(prefix) + 1)
-                return ; one title ended
-            char := SubStr(title, start + StrLen(prefix) + 1, 1)
+            start := InStr(title, prefix)
+            if (!start || StrLen(title) < start + StrLen(prefix))
+                return
+            char := SubStr(title, start + StrLen(prefix), 1)
             if (nextChar = "")
                 nextChar := char
             else if (char != nextChar)
@@ -313,10 +397,11 @@ Tab::
     return
 }
 ~Esc::
-    Gui, Destroy
-    return
 GuiClose:
     Gui, Destroy
+    for hotkey, mode in Config.Modes
+        if (hotkey != "^w" && hotkey != "^x" && hotkey != "^p" && hotkey != "^r")
+            Hotkey, %hotkey%, Off
     return
 #IfWinActive
 
