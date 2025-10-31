@@ -1,6 +1,6 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
-global FilterModes := {"^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
+global FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
 global Config := {}
 Config.Launch := "#!f"
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
@@ -43,7 +43,7 @@ Loop
     IfMsgBox, No
         return
 }
-modeList := "openWindows|favorites|directories"
+modeList := "openWindows|directories"
 for hotkey, mode in FilterModes
     modeList .= "|" mode
 Menu, Tray, NoStandard
@@ -156,6 +156,21 @@ ModeChanged:
             }
         }
         Gosub, UpdateList
+    } else if (FilterMode = "Favorites") {
+        EnvGet, userProfile, USERPROFILE
+        favFolder := userProfile "\Favorites"
+        Loop, Files, %favFolder%\*.lnk
+        {
+            FileGetShortcut, %A_LoopFileFullPath%, target
+            if (target = "" || !FileExist(target))
+                continue
+            FileGetTime, modTime, %A_LoopFileFullPath%, M
+            if ErrorLevel
+                continue
+            displayName := StrReplace(A_LoopFileName, ".lnk", "")
+            CachedList.Push({path: target, title: displayName})
+        }
+        Gosub, UpdateList
     } else
         Gosub, UpdateList
     return
@@ -215,27 +230,7 @@ UpdateList:
                 GuiControl,, WindowBox, %cleanTitle%
             }
         }
-    } else if (FilterMode = "favorites") {
-        EnvGet, userProfile, USERPROFILE
-        favFolder := userProfile "\Favorites"
-        Loop, Files, %favFolder%\*.lnk
-        {
-            FileGetShortcut, %A_LoopFileFullPath%, target
-            if (target = "" || !FileExist(target))
-                continue
-            if (!InStr(target, FilterText, CaseSensitive ? 1 : 0))
-                continue
-            if (IsExcluded(target, FilterMode))
-                continue
-
-            FileGetTime, modTime, %A_LoopFileFullPath%, M
-            if ErrorLevel
-                continue
-            displayName := StrReplace(A_LoopFileName, ".lnk", "")
-            ItemList.Push({path: target, title: displayName})
-            GuiControl,, WindowBox, %displayName%
-        }
-     } else if (FilterMode = "Bookmarks" || Config.Sniplets.HasKey(FilterMode)) {
+    } else if (FilterMode = "Favorites" || FilterMode = "Bookmarks" || Config.Sniplets.HasKey(FilterMode)) {
          for index, item in CachedList {
              if InStr(item.title, FilterText) {
                  ItemList.Push(item)
@@ -373,17 +368,16 @@ HandleModeHotkey:
 ^x::
 ^p::
 ^b::
+^f::
     Gosub, HandleModeHotkey
     return
 
 ^o::
-^f::
 ^d::
 {
     Switch, SubStr(A_ThisHotkey, StrLen(A_ThisHotkey))
     {
         Case "o": FilterMode := "openWindows"
-        Case "f": FilterMode := "favorites"
         Case "d": FilterMode := "directories"
     }
     Gosub, UpdateList
