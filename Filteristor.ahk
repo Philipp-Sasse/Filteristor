@@ -1,5 +1,6 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
+global FilterModes := {}
 global Config := {}
 Config.Launch := "#!f"
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
@@ -29,7 +30,10 @@ Loop
                     Default: MsgBox, Unknown Hotkey "%match2%" in line %A_Index%
                 }
             Case "Mode": Config.Modes[match3] := {name: match2, filter: match5}
-            Case "Sniplets": Config.Sniplets[match3] := {name: match2, path: match5}
+            Case "Sniplets": {
+                Filtermodes[match3] := match2
+                Config.Sniplets[match2] := {hotkey: match3, path: match5}
+            }
             Case "Monitor": Config.Actions[match3] := {monitor: match2, dimensions: match5}
             Case "Path": Config.Path[match2] := match3
             Case "Exclude": Config.Exclude.Push({ scope: match2, filter: match3})
@@ -45,6 +49,8 @@ Loop
 modeList := "openWindows|favorites|bookmarks|directories"
 for hotkey, mode in Config.Modes
     modeList .= "|" mode.name
+for hotkey, mode in FilterModes
+    modeList .= "|" mode
 Menu, Tray, NoStandard
 Menu, Tray, Add, Help, ShowHelp
 Menu, Tray, Add, Exit, ExitApp
@@ -54,11 +60,12 @@ Hotkey, % Config.Launch, LaunchFilteristor
 return
 LaunchFilteristor:
 {
+    global CachedList := []
     global ItemList := []
     global SelectedIndex := 1
     global CaseSensitive := false
-    RecentIndex := []
-    RecentIndexBuilt := false
+    RecentItemList := []
+    RecentItemListBuilt := false
     FilterMode := "openWindows"
 
     Gui, +AlwaysOnTop +ToolWindow
@@ -76,7 +83,7 @@ LaunchFilteristor:
         if hotkey not in "^w,^x,^p,^r,^1"
             Hotkey, %hotkey%, HandleModeHotkey
     }
-    for hotkey, mode in Config.Sniplets {
+    for hotkey, mode in FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, HandleModeHotkey
     }
@@ -121,7 +128,17 @@ return
 
 ModeChanged:
 {
+    CachedList := []
     GuiControlGet, FilterMode,, ModeSelector
+    if (Config.Sniplets.HasKey(FilterMode)) {
+        path := Config.Sniplets[FilterMode].path
+        Loop, Read, %path%
+        {
+            line := Trim(A_LoopReadLine)
+            if (line != "")
+                CachedList.Push({title: line, path: path})
+        }
+    }
     Gosub, UpdateList
     return
 }
@@ -222,7 +239,15 @@ UpdateList:
                 currentName := ""  ; Reset für nächsten Block
             }
         }
-    } else { ; all recentItems-based filters
+     } else if (Config.Sniplets.HasKey(FilterMode)) {
+         ; TODO
+         for index, item in CachedList {
+             if InStr(item.title, FilterText) {
+                 ItemList.Push(item)
+                 GuiControl,, WindowBox, % item.title
+             }
+         }
+     } else { ; all recentItems-based filters
         filterRegex := "."
         snipletPath = ""
         for hotkey, mode in Config.Modes
@@ -238,7 +263,7 @@ UpdateList:
         }
 
         recentFolder := A_AppData "\Microsoft\Windows\Recent"
-        if (!RecentIndexBuilt) {
+        if (!RecentItemListBuilt) {
             tempList := []
 
             Loop, Files, %recentFolder%\*.lnk
@@ -254,11 +279,11 @@ UpdateList:
                 tempList.Push({path: target, title: displayName, time: modTime, link: A_LoopFileFullPath})
             }
             tempList.Sort("time D")
-            RecentIndex := tempList
-            RecentIndexBuilt := true
+            RecentItemList := tempList
+            RecentItemListBuilt := true
         }
 
-        for index, item in RecentIndex {
+        for index, item in RecentItemList {
             if (FilterMode = "directories" && !InStr(FileExist(item.path), "D"))
                 continue
             if (!RegExMatch(item.path, filterRegex))
@@ -287,6 +312,10 @@ Selection:
     if (FilterMode = "openWindows") {
         windowId := selectedItem.id
         WinActivate, ahk_id %windowId%
+    } else if (Config.Sniplets.HasKey(FilterMode)) {
+        Gui, Destroy
+        SendInput, % selectedItem.title
+        return
     } else {
         Run, % selectedItem.path,,, pid
         if (pid != "") {
@@ -342,10 +371,13 @@ HandleModeHotkey:
         SendInput, %A_ThisHotkey%
         return
     }
-    mode := Config.Modes[A_ThisHotkey]
-    if (mode)
-    {
-        FilterMode := mode.name
+    if (FilterModes.HasKey(A_ThisHotkey)) {
+        FilterMode := FilterModes[A_ThisHotkey]
+        GuiControl, ChooseString, ModeSelector, %FilterMode%
+        Gosub, ModeChanged
+        return
+    } else if (Config.Modes.HasKey(A_ThisHotkey)) {
+        FilterMode := Config.Modes[A_ThisHotkey].name
         GuiControl, , ModeSelector, filtering ...
         GuiControl, ChooseString, ModeSelector, filtering ...
         Gosub, UpdateList
@@ -353,16 +385,7 @@ HandleModeHotkey:
         GuiControl, , ModeSelector, %modeList%
         GuiControl, ChooseString, ModeSelector, %FilterMode%
         return
-    }
-    mode := Config.Sniplets[A_ThisHotkey]
-    if (mode)
-    {
-        FilterMode := mode.name
-        Gosub, UpdateList
-        GuiControl, ChooseString, ModeSelector, %FilterMode%
-    }
-    else
-    {
+    } else {
         MsgBox, Unknown hotkey %A_ThisHotkey%
         return
     }
@@ -461,9 +484,9 @@ Tab::
     }
     else if (selectedItem.HasKey("link") && FileExist(selectedItem.link)) {
         FileDelete, % selectedItem.link
-        Loop % RecentIndex.Length() {
-            if (RecentIndex[A_Index].link = selectedItem.link) {
-                RecentIndex.RemoveAt(A_Index)
+        Loop % RecentItemList.Length() {
+            if (RecentItemList[A_Index].link = selectedItem.link) {
+                RecentItemList.RemoveAt(A_Index)
                 break
             }
         }
@@ -473,6 +496,19 @@ Tab::
     SelectedIndex := Min(OldSelection, ItemList.Length())
     GuiControl, Choose, WindowBox, %SelectedIndex%
     return
+}
+
+^+:: ; Ctrl-Plus to add new Sniplet
+{
+    if (Config.Sniplets.HasKey(FilterMode)) {
+        GuiControlGet, newText,, SearchInput
+        if (newText != "") {
+            path := Config.Sniplets[FilterMode].path
+            FileAppend, %newText%`n, %path%
+            CachedList.Push({title: newText, path: path})
+            Gosub, UpdateList
+        }
+    }
 }
 
 ~Up::
