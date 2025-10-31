@@ -1,14 +1,10 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
-global FilterModes := {}
+global FilterModes := {"^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
 global Config := {}
 Config.Launch := "#!f"
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
-Config.Modes := {}
-Config.Modes["^r"] := {name: "Recent", filter: "."}
-Config.Modes["^w"] := {name: "Word", filter: "i)\.doc[xm]?$"}
-Config.Modes["^x"] := {name: "eXcel", filter: "i)\.xls[xm]?$"}
-Config.Modes["^p"] := {name: "Pdf", filter: "i)\.pdf$"}
+Config.Modes := {"Recent": ".", "Word": "i)\.doc[xm]?$", "eXcel": "i)\.xls[xm]?$", "Pdf": "i)\.pdf$"}
 Config.Actions["^1"] := {monitor: 1, dimensions: "x"}
 Config.Exclude := []
 
@@ -27,10 +23,13 @@ Loop
                     Case "Launch": Config.Launch := match3
                     Default: MsgBox, Unknown Hotkey "%match2%" in line %A_Index%
                 }
-            Case "Mode": Config.Modes[match3] := {name: match2, filter: match5}
+            Case "Mode": {
+                Filtermodes[match3] := match2
+                Config.Modes[match2] := match5
+                }
             Case "Sniplets": {
                 Filtermodes[match3] := match2
-                Config.Sniplets[match2] := {hotkey: match3, path: match5}
+                Config.Sniplets[match2] := match5
             }
             Case "Monitor": Config.Actions[match3] := {monitor: match2, dimensions: match5}
             Case "Path": Config.Path[match2] := match3
@@ -45,8 +44,6 @@ Loop
         return
 }
 modeList := "openWindows|favorites|bookmarks|directories"
-for hotkey, mode in Config.Modes
-    modeList .= "|" mode.name
 for hotkey, mode in FilterModes
     modeList .= "|" mode
 Menu, Tray, NoStandard
@@ -77,10 +74,6 @@ LaunchFilteristor:
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     ;PredefinedHotkeys := ["^w", "^x", "^p", "^r", "^1"]
     PredefinedHotkeys := "^w,^x,^p,^r,^1"
-    for hotkey, mode in Config.Modes {
-        if hotkey not in "^w,^x,^p,^r,^1"
-            Hotkey, %hotkey%, HandleModeHotkey
-    }
     for hotkey, mode in FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, HandleModeHotkey
@@ -129,7 +122,7 @@ ModeChanged:
     CachedList := []
     GuiControlGet, FilterMode,, ModeSelector
     if (Config.Sniplets.HasKey(FilterMode)) {
-        path := Config.Sniplets[FilterMode].path
+        path := Config.Sniplets[FilterMode]
         Loop, Read, %path%
         {
             line := Trim(A_LoopReadLine)
@@ -238,27 +231,14 @@ UpdateList:
             }
         }
      } else if (Config.Sniplets.HasKey(FilterMode)) {
-         ; TODO
          for index, item in CachedList {
              if InStr(item.title, FilterText) {
                  ItemList.Push(item)
                  GuiControl,, WindowBox, % item.title
              }
          }
-     } else { ; all recentItems-based filters
-        filterRegex := "."
-        snipletPath = ""
-        for hotkey, mode in Config.Modes
-        {
-            if (mode.name = FilterMode) {
-                if (mode.path) {
-                    snipletPath = mode.path
-                } else {
-                    filterRegex := mode.filter
-                }
-                break
-            }
-        }
+     } else if (Config.Modes.HasKey(FilterMode)) { ; recentItems-based filters
+        filterRegex := Config.Modes[FilterMode]
 
         recentFolder := A_AppData "\Microsoft\Windows\Recent"
         if (!RecentItemListBuilt) {
@@ -294,6 +274,8 @@ UpdateList:
             ItemList.Push(item)
             GuiControl,, WindowBox, % item.title
         }
+    } else {
+        MsgBox, Unhandled FilterMode %FilterMode%
     }
     if (ItemList.Length() > 0) {
         SelectedIndex := 1
@@ -371,23 +353,22 @@ HandleModeHotkey:
     }
     if (FilterModes.HasKey(A_ThisHotkey)) {
         FilterMode := FilterModes[A_ThisHotkey]
+        if (Config.Modes.HasKey(FilterMode)) {
+            GuiControl, , ModeSelector, filtering ...
+            GuiControl, ChooseString, ModeSelector, filtering ...
+            Gosub, UpdateList
+            GuiControl, , ModeSelector, |
+            GuiControl, , ModeSelector, %modeList%
+            GuiControl, ChooseString, ModeSelector, %FilterMode%
+            return
+        }
         GuiControl, ChooseString, ModeSelector, %FilterMode%
         Gosub, ModeChanged
-        return
-    } else if (Config.Modes.HasKey(A_ThisHotkey)) {
-        FilterMode := Config.Modes[A_ThisHotkey].name
-        GuiControl, , ModeSelector, filtering ...
-        GuiControl, ChooseString, ModeSelector, filtering ...
-        Gosub, UpdateList
-        GuiControl, , ModeSelector, |
-        GuiControl, , ModeSelector, %modeList%
-        GuiControl, ChooseString, ModeSelector, %FilterMode%
         return
     } else {
         MsgBox, Unknown hotkey %A_ThisHotkey%
         return
     }
-
     return
 }
 #IfWinActive ahk_class AutoHotkeyGUI
@@ -501,7 +482,7 @@ Tab::
     if (Config.Sniplets.HasKey(FilterMode)) {
         GuiControlGet, newText,, SearchInput
         if (newText != "") {
-            path := Config.Sniplets[FilterMode].path
+            path := Config.Sniplets[FilterMode]
             FileAppend, %newText%`n, %path%
             CachedList.Push({title: newText, path: path})
             Gosub, UpdateList
@@ -524,10 +505,6 @@ Tab::
 GuiClose:
     Gui, Destroy
     PredefinedHotkeys := ["^w", "^x", "^p", "^r", "^1"]
-    for hotkey, mode in Config.Modes {
-        if !(hotkey in PredefinedHotkeys*)
-            Hotkey, %hotkey%, Off
-    }
     for hotkey, mode in FilterModes {
         if !(hotkey in PredefinedHotkeys*)
             Hotkey, %hotkey%, Off
