@@ -21,11 +21,9 @@ Loop
     if RegExMatch(line, "^\s*(\S*) +([^:]*):\s*([^\t]*)(\t+(.*))?$", match)
     {
         ;MsgBox, Command "%match1%", target "%match2%", key "%match3%", parameter "%match5%"
-        Switch, match1
-        {
+        Switch, match1 {
             Case "Hotkey":
-                Switch, match2
-                {
+                Switch, match2 {
                     Case "Launch": Config.Launch := match3
                     Default: MsgBox, Unknown Hotkey "%match2%" in line %A_Index%
                 }
@@ -530,7 +528,7 @@ GuiClose:
         if !(hotkey in PredefinedHotkeys*)
             Hotkey, %hotkey%, Off
     }
-    for hotkey, mode in Config.Sniplets {
+    for hotkey, mode in FilterModes {
         if !(hotkey in PredefinedHotkeys*)
             Hotkey, %hotkey%, Off
     }
