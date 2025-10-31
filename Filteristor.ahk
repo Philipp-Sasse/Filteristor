@@ -1,6 +1,6 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
-global FilterModes := {"^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
+global FilterModes := {"^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
 global Config := {}
 Config.Launch := "#!f"
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
@@ -43,7 +43,7 @@ Loop
     IfMsgBox, No
         return
 }
-modeList := "openWindows|favorites|bookmarks|directories"
+modeList := "openWindows|favorites|directories"
 for hotkey, mode in FilterModes
     modeList .= "|" mode
 Menu, Tray, NoStandard
@@ -130,7 +130,34 @@ ModeChanged:
                 CachedList.Push({title: line, path: path})
         }
     }
-    Gosub, UpdateList
+    if (Config.Modes.HasKey(FilterMode)) {
+        GuiControl, , ModeSelector, filtering ...
+        GuiControl, ChooseString, ModeSelector, filtering ...
+        Gosub, UpdateList
+        GuiControl, , ModeSelector, |
+        GuiControl, , ModeSelector, %modeList%
+        GuiControl, ChooseString, ModeSelector, %FilterMode%
+        return
+    } else if (FilterMode = "Bookmarks") {
+        EnvGet, localAppData, LOCALAPPDATA
+        bookmarksFile := Config.Path["Bookmarks"]
+        if !FileExist(bookmarksFile)
+            return
+        FileRead, rawJson, %bookmarksFile%
+        currentName := ""
+        Loop, Parse, rawJson, `n, `r
+        {
+            line := Trim(A_LoopField)
+            if (RegExMatch(line, """name"":\s*""(.*?)""", nameMatch)) {
+                currentName := nameMatch1
+            } else if (RegExMatch(line, """url"":\s*""(.*?)""", urlMatch)) {
+                CachedList.Push({title: currentName, path: urlMatch1})
+                currentName := ""  ; Reset für nächsten Block
+            }
+        }
+        Gosub, UpdateList
+    } else
+        Gosub, UpdateList
     return
 }
 ToggleCase:
@@ -208,29 +235,7 @@ UpdateList:
             ItemList.Push({path: target, title: displayName})
             GuiControl,, WindowBox, %displayName%
         }
-    } else if (FilterMode = "bookmarks") {
-        EnvGet, localAppData, LOCALAPPDATA
-        bookmarksFile := Config.Path["Bookmarks"]
-        if !FileExist(bookmarksFile)
-            return
-        FileRead, rawJson, %bookmarksFile%
-        GuiControl,, WindowBox, |
-
-        currentName := ""
-        Loop, Parse, rawJson, `n, `r
-        {
-            line := Trim(A_LoopField)
-            if (RegExMatch(line, """name"":\s*""(.*?)""", nameMatch)) {
-                currentName := nameMatch1
-            } else if (RegExMatch(line, """url"":\s*""(.*?)""", urlMatch)) {
-                if (InStr(currentName, FilterText, CaseSensitive ? 1 : 0) && !IsExcluded(currentName, FilterMode)) {
-                    ItemList.Push({title: currentName, path: urlMatch1})
-                    GuiControl,, WindowBox, %currentName%
-                }
-                currentName := ""  ; Reset für nächsten Block
-            }
-        }
-     } else if (Config.Sniplets.HasKey(FilterMode)) {
+     } else if (FilterMode = "Bookmarks" || Config.Sniplets.HasKey(FilterMode)) {
          for index, item in CachedList {
              if InStr(item.title, FilterText) {
                  ItemList.Push(item)
@@ -353,15 +358,6 @@ HandleModeHotkey:
     }
     if (FilterModes.HasKey(A_ThisHotkey)) {
         FilterMode := FilterModes[A_ThisHotkey]
-        if (Config.Modes.HasKey(FilterMode)) {
-            GuiControl, , ModeSelector, filtering ...
-            GuiControl, ChooseString, ModeSelector, filtering ...
-            Gosub, UpdateList
-            GuiControl, , ModeSelector, |
-            GuiControl, , ModeSelector, %modeList%
-            GuiControl, ChooseString, ModeSelector, %FilterMode%
-            return
-        }
         GuiControl, ChooseString, ModeSelector, %FilterMode%
         Gosub, ModeChanged
         return
@@ -376,19 +372,18 @@ HandleModeHotkey:
 ^w::
 ^x::
 ^p::
+^b::
     Gosub, HandleModeHotkey
     return
 
 ^o::
 ^f::
-^b::
 ^d::
 {
     Switch, SubStr(A_ThisHotkey, StrLen(A_ThisHotkey))
     {
         Case "o": FilterMode := "openWindows"
         Case "f": FilterMode := "favorites"
-        Case "b": FilterMode := "bookmarks"
         Case "d": FilterMode := "directories"
     }
     Gosub, UpdateList
