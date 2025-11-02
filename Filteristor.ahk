@@ -1,13 +1,10 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
+global FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
 global Config := {}
 Config.Launch := "#!f"
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
-Config.Modes := {}
-Config.Modes["^r"] := {name: "Recent", filter: "."}
-Config.Modes["^w"] := {name: "Word", filter: "i)\.doc[xm]?$"}
-Config.Modes["^x"] := {name: "eXcel", filter: "i)\.xls[xm]?$"}
-Config.Modes["^p"] := {name: "Pdf", filter: "i)\.pdf$"}
+Config.Modes := {"Recent": ".", "Word": "i)\.doc[xm]?$", "eXcel": "i)\.xls[xm]?$", "Pdf": "i)\.pdf$"}
 Config.Actions["^1"] := {monitor: 1, dimensions: "x"}
 Config.Exclude := []
 
@@ -20,16 +17,20 @@ Loop
     if RegExMatch(line, "^\s*(\S*) +([^:]*):\s*([^\t]*)(\t+(.*))?$", match)
     {
         ;MsgBox, Command "%match1%", target "%match2%", key "%match3%", parameter "%match5%"
-        Switch, match1
-        {
+        Switch, match1 {
             Case "Hotkey":
-                Switch, match2
-                {
+                Switch, match2 {
                     Case "Launch": Config.Launch := match3
                     Default: MsgBox, Unknown Hotkey "%match2%" in line %A_Index%
                 }
-            Case "Mode": Config.Modes[match3] := {name: match2, filter: match5}
-            Case "Sniplets": Config.Sniplets[match3] := {name: match2, path: match5}
+            Case "Mode": {
+                Filtermodes[match3] := match2
+                Config.Modes[match2] := match5
+                }
+            Case "Sniplets": {
+                Filtermodes[match3] := match2
+                Config.Sniplets[match2] := match5
+            }
             Case "Monitor": Config.Actions[match3] := {monitor: match2, dimensions: match5}
             Case "Path": Config.Path[match2] := match3
             Case "Exclude": Config.Exclude.Push({ scope: match2, filter: match3})
@@ -42,9 +43,9 @@ Loop
     IfMsgBox, No
         return
 }
-modeList := "openWindows|favorites|bookmarks|directories"
-for hotkey, mode in Config.Modes
-    modeList .= "|" mode.name
+modeList := "openWindows|directories"
+for hotkey, mode in FilterModes
+    modeList .= "|" mode
 Menu, Tray, NoStandard
 Menu, Tray, Add, Help, ShowHelp
 Menu, Tray, Add, Exit, ExitApp
@@ -54,11 +55,12 @@ Hotkey, % Config.Launch, LaunchFilteristor
 return
 LaunchFilteristor:
 {
+    global CachedList := []
     global ItemList := []
     global SelectedIndex := 1
     global CaseSensitive := false
-    RecentIndex := []
-    RecentIndexBuilt := false
+    RecentItemList := []
+    RecentItemListBuilt := false
     FilterMode := "openWindows"
 
     Gui, +AlwaysOnTop +ToolWindow
@@ -72,11 +74,7 @@ LaunchFilteristor:
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     ;PredefinedHotkeys := ["^w", "^x", "^p", "^r", "^1"]
     PredefinedHotkeys := "^w,^x,^p,^r,^1"
-    for hotkey, mode in Config.Modes {
-        if hotkey not in "^w,^x,^p,^r,^1"
-            Hotkey, %hotkey%, HandleModeHotkey
-    }
-    for hotkey, mode in Config.Sniplets {
+    for hotkey, mode in FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, HandleModeHotkey
     }
@@ -121,8 +119,60 @@ return
 
 ModeChanged:
 {
+    CachedList := []
     GuiControlGet, FilterMode,, ModeSelector
-    Gosub, UpdateList
+    if (Config.Sniplets.HasKey(FilterMode)) {
+        path := Config.Sniplets[FilterMode]
+        Loop, Read, %path%
+        {
+            line := Trim(A_LoopReadLine)
+            if (line != "")
+                CachedList.Push({title: line, path: path})
+        }
+    }
+    if (Config.Modes.HasKey(FilterMode)) {
+        GuiControl, , ModeSelector, filtering ...
+        GuiControl, ChooseString, ModeSelector, filtering ...
+        Gosub, UpdateList
+        GuiControl, , ModeSelector, |
+        GuiControl, , ModeSelector, %modeList%
+        GuiControl, ChooseString, ModeSelector, %FilterMode%
+        return
+    } else if (FilterMode = "Bookmarks") {
+        EnvGet, localAppData, LOCALAPPDATA
+        bookmarksFile := Config.Path["Bookmarks"]
+        if !FileExist(bookmarksFile)
+            return
+        FileRead, rawJson, %bookmarksFile%
+        currentName := ""
+        Loop, Parse, rawJson, `n, `r
+        {
+            line := Trim(A_LoopField)
+            if (RegExMatch(line, """name"":\s*""(.*?)""", nameMatch)) {
+                currentName := nameMatch1
+            } else if (RegExMatch(line, """url"":\s*""(.*?)""", urlMatch)) {
+                CachedList.Push({title: currentName, path: urlMatch1})
+                currentName := ""  ; Reset für nächsten Block
+            }
+        }
+        Gosub, UpdateList
+    } else if (FilterMode = "Favorites") {
+        EnvGet, userProfile, USERPROFILE
+        favFolder := userProfile "\Favorites"
+        Loop, Files, %favFolder%\*.lnk
+        {
+            FileGetShortcut, %A_LoopFileFullPath%, target
+            if (target = "" || !FileExist(target))
+                continue
+            FileGetTime, modTime, %A_LoopFileFullPath%, M
+            if ErrorLevel
+                continue
+            displayName := StrReplace(A_LoopFileName, ".lnk", "")
+            CachedList.Push({path: target, title: displayName})
+        }
+        Gosub, UpdateList
+    } else
+        Gosub, UpdateList
     return
 }
 ToggleCase:
@@ -180,65 +230,18 @@ UpdateList:
                 GuiControl,, WindowBox, %cleanTitle%
             }
         }
-    } else if (FilterMode = "favorites") {
-        EnvGet, userProfile, USERPROFILE
-        favFolder := userProfile "\Favorites"
-        Loop, Files, %favFolder%\*.lnk
-        {
-            FileGetShortcut, %A_LoopFileFullPath%, target
-            if (target = "" || !FileExist(target))
-                continue
-            if (!InStr(target, FilterText, CaseSensitive ? 1 : 0))
-                continue
-            if (IsExcluded(target, FilterMode))
-                continue
-
-            FileGetTime, modTime, %A_LoopFileFullPath%, M
-            if ErrorLevel
-                continue
-            displayName := StrReplace(A_LoopFileName, ".lnk", "")
-            ItemList.Push({path: target, title: displayName})
-            GuiControl,, WindowBox, %displayName%
-        }
-    } else if (FilterMode = "bookmarks") {
-        EnvGet, localAppData, LOCALAPPDATA
-        bookmarksFile := Config.Path["Bookmarks"]
-        if !FileExist(bookmarksFile)
-            return
-        FileRead, rawJson, %bookmarksFile%
-        GuiControl,, WindowBox, |
-
-        currentName := ""
-        Loop, Parse, rawJson, `n, `r
-        {
-            line := Trim(A_LoopField)
-            if (RegExMatch(line, """name"":\s*""(.*?)""", nameMatch)) {
-                currentName := nameMatch1
-            } else if (RegExMatch(line, """url"":\s*""(.*?)""", urlMatch)) {
-                if (InStr(currentName, FilterText, CaseSensitive ? 1 : 0) && !IsExcluded(currentName, FilterMode)) {
-                    ItemList.Push({title: currentName, path: urlMatch1})
-                    GuiControl,, WindowBox, %currentName%
-                }
-                currentName := ""  ; Reset für nächsten Block
-            }
-        }
-    } else { ; all recentItems-based filters
-        filterRegex := "."
-        snipletPath = ""
-        for hotkey, mode in Config.Modes
-        {
-            if (mode.name = FilterMode) {
-                if (mode.path) {
-                    snipletPath = mode.path
-                } else {
-                    filterRegex := mode.filter
-                }
-                break
-            }
-        }
+    } else if (FilterMode = "Favorites" || FilterMode = "Bookmarks" || Config.Sniplets.HasKey(FilterMode)) {
+         for index, item in CachedList {
+             if InStr(item.title, FilterText) {
+                 ItemList.Push(item)
+                 GuiControl,, WindowBox, % item.title
+             }
+         }
+     } else if (Config.Modes.HasKey(FilterMode)) { ; recentItems-based filters
+        filterRegex := Config.Modes[FilterMode]
 
         recentFolder := A_AppData "\Microsoft\Windows\Recent"
-        if (!RecentIndexBuilt) {
+        if (!RecentItemListBuilt) {
             tempList := []
 
             Loop, Files, %recentFolder%\*.lnk
@@ -254,11 +257,11 @@ UpdateList:
                 tempList.Push({path: target, title: displayName, time: modTime, link: A_LoopFileFullPath})
             }
             tempList.Sort("time D")
-            RecentIndex := tempList
-            RecentIndexBuilt := true
+            RecentItemList := tempList
+            RecentItemListBuilt := true
         }
 
-        for index, item in RecentIndex {
+        for index, item in RecentItemList {
             if (FilterMode = "directories" && !InStr(FileExist(item.path), "D"))
                 continue
             if (!RegExMatch(item.path, filterRegex))
@@ -271,6 +274,8 @@ UpdateList:
             ItemList.Push(item)
             GuiControl,, WindowBox, % item.title
         }
+    } else {
+        MsgBox, Unhandled FilterMode %FilterMode%
     }
     if (ItemList.Length() > 0) {
         SelectedIndex := 1
@@ -283,10 +288,15 @@ Selection:
 {
     if (SelectedIndex < 1 || SelectedIndex > ItemList.Length())
         return
+    Hotkey := A_ThisHotkey
     selectedItem := ItemList[SelectedIndex]
     if (FilterMode = "openWindows") {
         windowId := selectedItem.id
         WinActivate, ahk_id %windowId%
+    } else if (Config.Sniplets.HasKey(FilterMode)) {
+        Gui, Destroy
+        SendInput, % selectedItem.title
+        return
     } else {
         Run, % selectedItem.path,,, pid
         if (pid != "") {
@@ -297,39 +307,37 @@ Selection:
             WinGet, windowId, ID, A
         }
     }
-    action := Config.Actions[A_ThisHotkey]
-    if (action = "") {
-        Gui, Destroy
-        return
-    }
-    monitorNr := Config.Actions[A_ThisHotkey].monitor
-    dim := StrSplit(Config.Actions[A_ThisHotkey].dimensions, ",", " ")
-    ; MsgBox hotkey %A_ThisHotkey%, action %action% --> Config.Actions["^1"] :: %monitorNr% ::: %dim%, 3
-    SysGet, MonitorCount, MonitorCount
-    if (monitorNr <= MonitorCount) {
-        SysGet, Mon, MonitorWorkArea, %monitorNr%
-        MonWidth := MonRight - MonLeft
-        MonHeight := MonBottom - MonTop
+    if (Config.Actions.HasKey(Hotkey)) {
+        action := Config.Actions[Hotkey]
+        monitorNr := Config.Actions[Hotkey].monitor
+        dim := StrSplit(Config.Actions[Hotkey].dimensions, ",", " ")
+        ; MsgBox hotkey %Hotkey%, action %action% --> Config.Actions["^1"] :: %monitorNr% ::: %dim%, 3
+        SysGet, MonitorCount, MonitorCount
+        if (monitorNr <= MonitorCount) {
+            SysGet, Mon, MonitorWorkArea, %monitorNr%
+            MonWidth := MonRight - MonLeft
+            MonHeight := MonBottom - MonTop
 
-        WinRestore, ahk_id %windowId%
-        WinGetPos, WinX, WinY, WinW, WinH, ahk_id %windowId%
-        WinW := min(WinW, MonWidth)
-        WinH := min(WinH, MonHeight)
-        NewX := MonLeft + (MonWidth - WinW) // 2
-        NewY := MonTop + (MonHeight - WinH) // 2
-        ; MsgBox, %dim% - %WinX% - %WinY% - %WinW% - %WinH% : %NewX% - %NewY% : %MonLeft% - %MonRight%
+            WinRestore, ahk_id %windowId%
+            WinGetPos, WinX, WinY, WinW, WinH, ahk_id %windowId%
+            WinW := min(WinW, MonWidth)
+            WinH := min(WinH, MonHeight)
+            NewX := MonLeft + (MonWidth - WinW) // 2
+            NewY := MonTop + (MonHeight - WinH) // 2
+            ; MsgBox, %dim% - %WinX% - %WinY% - %WinW% - %WinH% : %NewX% - %NewY% : %MonLeft% - %MonRight%
 
-        if (dim[1] = "x") {
-            WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
-            WinMaximize, ahk_id %windowId%
-        } else if (dim[1] = "z") {
-            WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
-        } else if (dim[1] = "%") {
-            NewX := MonLeft + (dim[2] * MonWidth) // 100
-            WinW := ((100 - dim[2] - dim[3]) * MonWidth) // 100
-            NewY := MonTop + (dim[4] * MonHeight) // 100
-            WinH := ((100 - dim[4] - dim[5]) * MonHeight) // 100
-            WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+            if (dim[1] = "x") {
+                WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+                WinMaximize, ahk_id %windowId%
+            } else if (dim[1] = "z") {
+                WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+            } else if (dim[1] = "%") {
+                NewX := MonLeft + (dim[2] * MonWidth) // 100
+                WinW := ((100 - dim[2] - dim[3]) * MonWidth) // 100
+                NewY := MonTop + (dim[4] * MonHeight) // 100
+                WinH := ((100 - dim[4] - dim[5]) * MonHeight) // 100
+                WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+            }
         }
     }
     Gui, Destroy
@@ -342,31 +350,15 @@ HandleModeHotkey:
         SendInput, %A_ThisHotkey%
         return
     }
-    mode := Config.Modes[A_ThisHotkey]
-    if (mode)
-    {
-        FilterMode := mode.name
-        GuiControl, , ModeSelector, filtering ...
-        GuiControl, ChooseString, ModeSelector, filtering ...
-        Gosub, UpdateList
-        GuiControl, , ModeSelector, |
-        GuiControl, , ModeSelector, %modeList%
+    if (FilterModes.HasKey(A_ThisHotkey)) {
+        FilterMode := FilterModes[A_ThisHotkey]
         GuiControl, ChooseString, ModeSelector, %FilterMode%
+        Gosub, ModeChanged
         return
-    }
-    mode := Config.Sniplets[A_ThisHotkey]
-    if (mode)
-    {
-        FilterMode := mode.name
-        Gosub, UpdateList
-        GuiControl, ChooseString, ModeSelector, %FilterMode%
-    }
-    else
-    {
+    } else {
         MsgBox, Unknown hotkey %A_ThisHotkey%
         return
     }
-
     return
 }
 #IfWinActive ahk_class AutoHotkeyGUI
@@ -374,19 +366,17 @@ HandleModeHotkey:
 ^w::
 ^x::
 ^p::
+^b::
+^f::
     Gosub, HandleModeHotkey
     return
 
 ^o::
-^f::
-^b::
 ^d::
 {
     Switch, SubStr(A_ThisHotkey, StrLen(A_ThisHotkey))
     {
         Case "o": FilterMode := "openWindows"
-        Case "f": FilterMode := "favorites"
-        Case "b": FilterMode := "bookmarks"
         Case "d": FilterMode := "directories"
     }
     Gosub, UpdateList
@@ -461,9 +451,9 @@ Tab::
     }
     else if (selectedItem.HasKey("link") && FileExist(selectedItem.link)) {
         FileDelete, % selectedItem.link
-        Loop % RecentIndex.Length() {
-            if (RecentIndex[A_Index].link = selectedItem.link) {
-                RecentIndex.RemoveAt(A_Index)
+        Loop % RecentItemList.Length() {
+            if (RecentItemList[A_Index].link = selectedItem.link) {
+                RecentItemList.RemoveAt(A_Index)
                 break
             }
         }
@@ -473,6 +463,19 @@ Tab::
     SelectedIndex := Min(OldSelection, ItemList.Length())
     GuiControl, Choose, WindowBox, %SelectedIndex%
     return
+}
+
+^+:: ; Ctrl-Plus to add new Sniplet
+{
+    if (Config.Sniplets.HasKey(FilterMode)) {
+        GuiControlGet, newText,, SearchInput
+        if (newText != "") {
+            path := Config.Sniplets[FilterMode]
+            FileAppend, %newText%`n, %path%
+            CachedList.Push({title: newText, path: path})
+            Gosub, UpdateList
+        }
+    }
 }
 
 ~Up::
@@ -490,11 +493,7 @@ Tab::
 GuiClose:
     Gui, Destroy
     PredefinedHotkeys := ["^w", "^x", "^p", "^r", "^1"]
-    for hotkey, mode in Config.Modes {
-        if !(hotkey in PredefinedHotkeys*)
-            Hotkey, %hotkey%, Off
-    }
-    for hotkey, mode in Config.Sniplets {
+    for hotkey, mode in FilterModes {
         if !(hotkey in PredefinedHotkeys*)
             Hotkey, %hotkey%, Off
     }
