@@ -288,6 +288,7 @@ Selection:
 {
     if (SelectedIndex < 1 || SelectedIndex > ItemList.Length())
         return
+    Hotkey := A_ThisHotkey
     selectedItem := ItemList[SelectedIndex]
     if (FilterMode = "openWindows") {
         windowId := selectedItem.id
@@ -306,39 +307,37 @@ Selection:
             WinGet, windowId, ID, A
         }
     }
-    action := Config.Actions[A_ThisHotkey]
-    if (action = "") {
-        Gui, Destroy
-        return
-    }
-    monitorNr := Config.Actions[A_ThisHotkey].monitor
-    dim := StrSplit(Config.Actions[A_ThisHotkey].dimensions, ",", " ")
-    ; MsgBox hotkey %A_ThisHotkey%, action %action% --> Config.Actions["^1"] :: %monitorNr% ::: %dim%, 3
-    SysGet, MonitorCount, MonitorCount
-    if (monitorNr <= MonitorCount) {
-        SysGet, Mon, MonitorWorkArea, %monitorNr%
-        MonWidth := MonRight - MonLeft
-        MonHeight := MonBottom - MonTop
+    if (Config.Actions.HasKey(Hotkey)) {
+        action := Config.Actions[Hotkey]
+        monitorNr := Config.Actions[Hotkey].monitor
+        dim := StrSplit(Config.Actions[Hotkey].dimensions, ",", " ")
+        ; MsgBox hotkey %Hotkey%, action %action% --> Config.Actions["^1"] :: %monitorNr% ::: %dim%, 3
+        SysGet, MonitorCount, MonitorCount
+        if (monitorNr <= MonitorCount) {
+            SysGet, Mon, MonitorWorkArea, %monitorNr%
+            MonWidth := MonRight - MonLeft
+            MonHeight := MonBottom - MonTop
 
-        WinRestore, ahk_id %windowId%
-        WinGetPos, WinX, WinY, WinW, WinH, ahk_id %windowId%
-        WinW := min(WinW, MonWidth)
-        WinH := min(WinH, MonHeight)
-        NewX := MonLeft + (MonWidth - WinW) // 2
-        NewY := MonTop + (MonHeight - WinH) // 2
-        ; MsgBox, %dim% - %WinX% - %WinY% - %WinW% - %WinH% : %NewX% - %NewY% : %MonLeft% - %MonRight%
+            WinRestore, ahk_id %windowId%
+            WinGetPos, WinX, WinY, WinW, WinH, ahk_id %windowId%
+            WinW := min(WinW, MonWidth)
+            WinH := min(WinH, MonHeight)
+            NewX := MonLeft + (MonWidth - WinW) // 2
+            NewY := MonTop + (MonHeight - WinH) // 2
+            ; MsgBox, %dim% - %WinX% - %WinY% - %WinW% - %WinH% : %NewX% - %NewY% : %MonLeft% - %MonRight%
 
-        if (dim[1] = "x") {
-            WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
-            WinMaximize, ahk_id %windowId%
-        } else if (dim[1] = "z") {
-            WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
-        } else if (dim[1] = "%") {
-            NewX := MonLeft + (dim[2] * MonWidth) // 100
-            WinW := ((100 - dim[2] - dim[3]) * MonWidth) // 100
-            NewY := MonTop + (dim[4] * MonHeight) // 100
-            WinH := ((100 - dim[4] - dim[5]) * MonHeight) // 100
-            WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+            if (dim[1] = "x") {
+                WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+                WinMaximize, ahk_id %windowId%
+            } else if (dim[1] = "z") {
+                WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+            } else if (dim[1] = "%") {
+                NewX := MonLeft + (dim[2] * MonWidth) // 100
+                WinW := ((100 - dim[2] - dim[3]) * MonWidth) // 100
+                NewY := MonTop + (dim[4] * MonHeight) // 100
+                WinH := ((100 - dim[4] - dim[5]) * MonHeight) // 100
+                WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
+            }
         }
     }
     Gui, Destroy
