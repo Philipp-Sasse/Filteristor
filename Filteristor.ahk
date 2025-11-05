@@ -43,7 +43,7 @@ Loop
     IfMsgBox, No
         return
 }
-modeList := "openWindows|directories"
+modeList := "openWindows|Directories"
 for hotkey, mode in FilterModes
     modeList .= "|" mode
 Menu, Tray, NoStandard
@@ -72,8 +72,7 @@ LaunchFilteristor:
     Gui, Add, ListBox, x10 y+10 w500 h200 vWindowBox gListBoxChanged
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
-    ;PredefinedHotkeys := ["^w", "^x", "^p", "^r", "^1"]
-    PredefinedHotkeys := "^w,^x,^p,^r,^1"
+    global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^1"
     for hotkey, mode in FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, HandleModeHotkey
@@ -237,7 +236,7 @@ UpdateList:
                  GuiControl,, WindowBox, % item.title
              }
          }
-     } else if (Config.Modes.HasKey(FilterMode)) { ; recentItems-based filters
+     } else if (Filtermode = "Directories" || Config.Modes.HasKey(FilterMode)) { ; recentItems-based filters
         filterRegex := Config.Modes[FilterMode]
 
         recentFolder := A_AppData "\Microsoft\Windows\Recent"
@@ -262,7 +261,7 @@ UpdateList:
         }
 
         for index, item in RecentItemList {
-            if (FilterMode = "directories" && !InStr(FileExist(item.path), "D"))
+            if (FilterMode = "Directories" && !InStr(FileExist(item.path), "D"))
                 continue
             if (!RegExMatch(item.path, filterRegex))
                 continue
@@ -290,6 +289,8 @@ Selection:
         return
     Hotkey := A_ThisHotkey
     selectedItem := ItemList[SelectedIndex]
+    windowId := ""
+
     if (FilterMode = "openWindows") {
         windowId := selectedItem.id
         WinActivate, ahk_id %windowId%
@@ -300,17 +301,17 @@ Selection:
     } else {
         Run, % selectedItem.path,,, pid
         if (pid != "") {
-            WinWait, ahk_pid %pid%
-            WinGet, windowId, ID, ahk_pid %pid%
+            WinWait, ahk_pid %pid%,, 5
+            windowId := WinExist("ahk_pid " pid)
         } else {
-            WinWaitActive
-            WinGet, windowId, ID, A
+            WinWaitActive,, 5
+            windowId := WinExist("A")
         }
     }
-    if (Config.Actions.HasKey(Hotkey)) {
+    if (windowId && Config.Actions.HasKey(Hotkey)) {
         action := Config.Actions[Hotkey]
-        monitorNr := Config.Actions[Hotkey].monitor
-        dim := StrSplit(Config.Actions[Hotkey].dimensions, ",", " ")
+        monitorNr := action.monitor
+        dim := StrSplit(action.dimensions, ",", " ")
         ; MsgBox hotkey %Hotkey%, action %action% --> Config.Actions["^1"] :: %monitorNr% ::: %dim%, 3
         SysGet, MonitorCount, MonitorCount
         if (monitorNr <= MonitorCount) {
@@ -377,7 +378,7 @@ HandleModeHotkey:
     Switch, SubStr(A_ThisHotkey, StrLen(A_ThisHotkey))
     {
         Case "o": FilterMode := "openWindows"
-        Case "d": FilterMode := "directories"
+        Case "d": FilterMode := "Directories"
     }
     Gosub, UpdateList
     GuiControl, ChooseString, ModeSelector, %FilterMode%
@@ -492,13 +493,12 @@ Tab::
 ~Esc::
 GuiClose:
     Gui, Destroy
-    PredefinedHotkeys := ["^w", "^x", "^p", "^r", "^1"]
     for hotkey, mode in FilterModes {
-        if !(hotkey in PredefinedHotkeys*)
+        if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, Off
     }
     for hotkey, action in Config.Actions {
-        if !(hotkey in PredefinedHotkeys*)
+        if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, Off
     }
     return
