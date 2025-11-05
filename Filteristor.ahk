@@ -1,5 +1,6 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
+global MyWindowId := 0
 global Config := {}
 Config.FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
 Config.Launch := {}
@@ -59,6 +60,11 @@ return
 
 LaunchFilteristor:
 {
+    if (MyWindowId > 0) {
+        WinActivate, ahk_id %MyWindowId%
+        WinRestore, ahk_id %MyWindowId%
+        Return
+    }
     global CachedList := []
     global ItemList := []
     global SelectedIndex := 1
@@ -71,6 +77,7 @@ LaunchFilteristor:
         FilterMode := "openWindows"
 
     Gui, +AlwaysOnTop +ToolWindow
+    Gui, +LastFound
     Gui, Font, s10
     Gui, Add, Edit, x10 y10 w280 vSearchInput gUpdateList
     Gui, Add, Checkbox, x+10 yp w50 h22 vCaseToggle gToggleCase, case
@@ -79,6 +86,8 @@ LaunchFilteristor:
     Gui, Add, ListBox, x10 y+10 w500 h200 vWindowBox gListBoxChanged
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
+    MyWindowId := WinExist()
+    MsgBox, % MyWindowId
     global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^1"
     for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
@@ -302,6 +311,7 @@ Selection:
         windowId := selectedItem.id
         WinActivate, ahk_id %windowId%
     } else if (Config.Sniplets.HasKey(FilterMode)) {
+        MyWindowId := 0
         Gui, Destroy
         SendInput, % selectedItem.title
         return
@@ -348,6 +358,7 @@ Selection:
             }
         }
     }
+    MyWindowId := 0
     Gui, Destroy
     return
 }
@@ -499,6 +510,7 @@ Tab::
 }
 ~Esc::
 GuiClose:
+    MyWindowId := 0
     Gui, Destroy
     for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
