@@ -1,8 +1,8 @@
 ; the Filteristor switches to windows or opens recent items with given string
 
-global FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
 global Config := {}
-Config.Launch := "#!f"
+Config.FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
+Config.Launch := {}
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
 Config.Modes := {"Recent": ".", "Word": "i)\.doc[xm]?$", "eXcel": "i)\.xls[xm]?$", "Pdf": "i)\.pdf$"}
 Config.Actions["^1"] := {monitor: 1, dimensions: "x"}
@@ -20,15 +20,15 @@ Loop
         Switch, match1 {
             Case "Hotkey":
                 Switch, match2 {
-                    Case "Launch": Config.Launch := match3
-                    Default: MsgBox, Unknown Hotkey "%match2%" in line %A_Index%
+                    Case "Launch": Config.Launch[match3] := match5
+                    Default: Config.FilterModes[match3] := match2
                 }
             Case "Mode": {
-                Filtermodes[match3] := match2
+                Config.Filtermodes[match3] := match2
                 Config.Modes[match2] := match5
                 }
             Case "Sniplets": {
-                Filtermodes[match3] := match2
+                Config.Filtermodes[match3] := match2
                 Config.Sniplets[match2] := match5
             }
             Case "Monitor": Config.Actions[match3] := {monitor: match2, dimensions: match5}
@@ -44,15 +44,19 @@ Loop
         return
 }
 modeList := "openWindows|Directories"
-for hotkey, mode in FilterModes
+for hotkey, mode in Config.FilterModes
     modeList .= "|" mode
 Menu, Tray, NoStandard
 Menu, Tray, Add, Help, ShowHelp
 Menu, Tray, Add, Exit, ExitApp
 Menu, Tray, Default, Help
 
-Hotkey, % Config.Launch, LaunchFilteristor
+if (Config.Launch.Count() = 0)
+    Config.Launch := {"#!f":"openWindows"}
+for hotkey, mode in Config.Launch
+    Hotkey, %hotkey%, LaunchFilteristor
 return
+
 LaunchFilteristor:
 {
     global CachedList := []
@@ -61,7 +65,10 @@ LaunchFilteristor:
     global CaseSensitive := false
     RecentItemList := []
     RecentItemListBuilt := false
-    FilterMode := "openWindows"
+    if (Config.Launch.HasKey(A_ThisHotkey))
+        FilterMode := Config.Launch[A_ThisHotkey]
+    else
+        FilterMode := "openWindows"
 
     Gui, +AlwaysOnTop +ToolWindow
     Gui, Font, s10
@@ -73,7 +80,7 @@ LaunchFilteristor:
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^1"
-    for hotkey, mode in FilterModes {
+    for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, HandleModeHotkey
     }
@@ -81,7 +88,7 @@ LaunchFilteristor:
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, selection
     }
-    Gosub, UpdateList
+    Gosub, ModeChanged
     return
 }
 
@@ -351,8 +358,8 @@ HandleModeHotkey:
         SendInput, %A_ThisHotkey%
         return
     }
-    if (FilterModes.HasKey(A_ThisHotkey)) {
-        FilterMode := FilterModes[A_ThisHotkey]
+    if (Config.FilterModes.HasKey(A_ThisHotkey)) {
+        FilterMode := Config.FilterModes[A_ThisHotkey]
         GuiControl, ChooseString, ModeSelector, %FilterMode%
         Gosub, ModeChanged
         return
@@ -493,7 +500,7 @@ Tab::
 ~Esc::
 GuiClose:
     Gui, Destroy
-    for hotkey, mode in FilterModes {
+    for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, Off
     }
