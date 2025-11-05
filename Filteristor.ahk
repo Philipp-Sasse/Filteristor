@@ -87,7 +87,6 @@ LaunchFilteristor:
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     MyWindowId := WinExist()
-    MsgBox, % MyWindowId
     global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^1"
     for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
