@@ -22,6 +22,7 @@ Loop
             Case "Hotkey":
                 Switch, match2 {
                     Case "Launch": Config.Launch[match3] := match5
+                    Case "Save": Config.Hotkey["Save"] := match3
                     Default: Config.FilterModes[match3] := match2
                 }
             Case "Mode": {
@@ -90,11 +91,21 @@ LaunchFilteristor:
     global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^1"
     for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
+        {
             Hotkey, %hotkey%, HandleModeHotkey
+            Hotkey, %hotkey%, On
+        }
     }
     for hotkey, action in Config.Actions {
         if hotkey not in %PredefinedHotkeys%
+        {
             Hotkey, %hotkey%, selection
+            Hotkey, %hotkey%, On
+        }
+    }
+    if (Config.Hotkey.HasKey("Save")) {
+        Hotkey, % Config.Hotkey["Save"], SaveSniplets
+        Hotkey, % Config.Hotkey["Save"], On
     }
     Gosub, ModeChanged
     return
@@ -133,6 +144,7 @@ return
 
 ModeChanged:
 {
+    Gosub, CheckPendingSaves
     CachedList := []
     GuiControlGet, FilterMode,, ModeSelector
     if (Config.Sniplets.HasKey(FilterMode)) {
@@ -361,7 +373,32 @@ Selection:
     Gui, Destroy
     return
 }
+CheckPendingSaves:
+{
+    if (SavePending) {
+        MsgBox, 4100,, Save unsaved changes?
+        IfMsgBox, Yes
+            Gosub, SaveSniplets
+    }
+    SavePending := ""
+    return
+}
+SaveSniplets:
+{
+    if !Config.Sniplets.HasKey(SavePending)
+        return
 
+    path := Config.Sniplets[SavePending]
+    FileDelete, %path%
+
+    Loop, % CachedList.MaxIndex()
+    {
+        item := CachedList[A_Index]
+        FileAppend, % item.title . "`n", %path%
+    }
+    SavePending := ""
+    return
+}
 HandleModeHotkey:
 {
     if !WinActive("ahk_class AutoHotkeyGUI") {
@@ -466,8 +503,19 @@ Tab::
     if (FilterMode = "openWindows") {
         windowId := selectedItem.id
         WinClose, ahk_id %windowId%
-    }
-    else if (selectedItem.HasKey("link") && FileExist(selectedItem.link)) {
+    } else if (Config.Sniplets.HasKey(FilterMode)) {
+        Loop, % CachedList.MaxIndex()
+        {
+            if (CachedList[A_Index].title = selectedItem.title) {
+                CachedList.RemoveAt(A_Index)
+                if (Config.Hotkey.HasKey("Save"))
+                    SavePending := FilterMode
+                else
+                    Gosub, SaveSniplets
+                break
+            }
+        }
+    } else if (selectedItem.HasKey("link") && FileExist(selectedItem.link)) {
         FileDelete, % selectedItem.link
         Loop % RecentItemList.Length() {
             if (RecentItemList[A_Index].link = selectedItem.link) {
@@ -489,11 +537,15 @@ Tab::
         GuiControlGet, newText,, SearchInput
         if (newText != "") {
             path := Config.Sniplets[FilterMode]
-            FileAppend, %newText%`n, %path%
             CachedList.Push({title: newText, path: path})
+            if (Config.Hotkey.HasKey("Save"))
+                SavePending := FilterMode
+            else
+                FileAppend, %newText%`n, %path%
             Gosub, UpdateList
         }
     }
+    return
 }
 
 ~Up::
@@ -510,7 +562,7 @@ Tab::
 ~Esc::
 GuiClose:
     MyWindowId := 0
-    Gui, Destroy
+    Gosub, CheckPendingSaves
     for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, Off
@@ -519,6 +571,9 @@ GuiClose:
         if hotkey not in %PredefinedHotkeys%
             Hotkey, %hotkey%, Off
     }
+    if (Config.Hotkey.HasKey("Save"))
+        Hotkey, % Config.Hotkey["Save"], Off
+    Gui, Destroy
     return
 #IfWinActive
 
