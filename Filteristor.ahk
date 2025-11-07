@@ -69,6 +69,7 @@ LaunchFilteristor:
     global CachedList := []
     global ItemList := []
     global SelectedIndex := 1
+    global PresetIndex := 1
     global CaseSensitive := false
     RecentItemList := []
     RecentItemListBuilt := false
@@ -123,21 +124,22 @@ How to Use:
  - Press Tab to auto-complete
  - Press Down and Up to navigate the list
  - Press Return to run or bring to front the current selection
- - Press Ctrl+1 to maximise the current selection on screen 1 (more keys configurable)
- - Press Shift-Backspace to close the selected window or remove the recent item link
+ - Press Ctrl-1 to maximise the current selection on screen 1 (more keys configurable)
+ - Press Shift-Backspace to close the selected window or remove the recent item link or sniplet line
+ – Press Ctrl-Plus to add the current filter text to the sniplet collection
  - Press Esc to close the Filteristor
 
 Modes & Shortcuts:
- - Ctrl+O to switch between your (O)pen windows (default)
- - Ctrl+F to open one of your (F)avorites
- - Ctrl+B to open one of your (B)ookmarks
- - Ctrl+R to open (R)ecently used documents or directories
- - Ctrl+D to open recently used (D)irectories
- - Ctrl+P to open recently used (P)df documents
- - Ctrl+W to open recently used (W)ord documents
- - Ctrl+X to open recently used e(X)cel sheets
- - Ctrl+C to toggle (C)ase sensitive search
- - Ctrl+H to show this beautiful little (H)elp
+ - Ctrl-O to switch between your (O)pen windows (default)
+ - Ctrl-F to open one of your (F)avorites
+ - Ctrl-B to open one of your (B)ookmarks
+ - Ctrl-R to open (R)ecently used documents or directories
+ - Ctrl-D to open recently used (D)irectories
+ - Ctrl-P to open recently used (P)df documents
+ - Ctrl-W to open recently used (W)ord documents
+ - Ctrl-X to open recently used e(X)cel sheets
+ - Ctrl-C to toggle (C)ase sensitive search
+ - Ctrl-H to show this beautiful little (H)elp
 )
     Gui, +AlwaysOnTop
 return
@@ -304,7 +306,8 @@ UpdateList:
         MsgBox, Unhandled FilterMode %FilterMode%
     }
     if (ItemList.Length() > 0) {
-        SelectedIndex := 1
+        SelectedIndex := PresetIndex
+        PresetIndex := 1
         GuiControl, Choose, WindowBox, %SelectedIndex%
     }
     return
@@ -542,7 +545,9 @@ Tab::
                 SavePending := FilterMode
             else
                 FileAppend, %newText%`n, %path%
-            Gosub, UpdateList
+            GuiControl,, SearchInput,
+            SearchInput := ""
+            PresetIndex := CachedList.Length()
         }
     }
     return
