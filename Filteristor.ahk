@@ -569,23 +569,38 @@ Down::
     return
 }
 ^Up::
+^Down::
 {
     if (Config.Sniplets.HasKey(FilterMode) && SelectedIndex >= 1 && SelectedIndex <= ItemList.Length()) {
         selectedTitle := ItemList[SelectedIndex].title
+        currentIndex := 0
         newIndex := 1
         Loop, % CachedList.MaxIndex()
         {
             if (CachedList[A_Index].title = selectedTitle) {
-                movedItem := CachedList.RemoveAt(A_Index)
-                CachedList.InsertAt(newIndex, movedItem)
-                Gosub, SnipletsChanged
-                PresetIndex := SelectedIndex - 1
-                Gosub, UpdateList
-                return
+                if (A_ThisHotkey = "^Up") {
+                    movedItem := CachedList.RemoveAt(A_Index)
+                    CachedList.InsertAt(newIndex, movedItem)
+                    Gosub, SnipletsChanged
+                    PresetIndex := Max(1, SelectedIndex - 1)
+                    Gosub, UpdateList
+                    return
+                } else
+                    currentIndex := A_Index
             }
-            else if (InStr(CachedList[A_Index].title, FilterText, CaseSensitive ? 1 : 0))
+            else if (InStr(CachedList[A_Index].title, FilterText, CaseSensitive ? 1 : 0)) {
                 newIndex := A_Index
+                if (A_ThisHotkey = "^Down" && currentIndex > 0)
+                    break
+            }
         }
+    }
+    if (newIndex > currentIndex) {
+        movedItem := CachedList.RemoveAt(currentIndex)
+        CachedList.InsertAt(Min(newIndex, CachedList.Length() + 1), movedItem)
+        Gosub, SnipletsChanged
+        PresetIndex := Min(SelectedIndex + 1, CachedList.Length())
+        Gosub, UpdateList
     }
     return
 }
