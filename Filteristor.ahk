@@ -376,6 +376,13 @@ Selection:
     Gui, Destroy
     return
 }
+SnipletsChanged:
+{
+    SavePending := FilterMode
+    if (!Config.Hotkey.HasKey("Save"))
+        Gosub, SaveSniplets
+    return
+}
 CheckPendingSaves:
 {
     if (SavePending) {
@@ -496,7 +503,7 @@ Tab::
     return
 }
 
-~+Backspace::
+^Backspace::
 {
     if (SelectedIndex < 1 || SelectedIndex > ItemList.Length())
         return
@@ -511,10 +518,7 @@ Tab::
         {
             if (CachedList[A_Index].title = selectedItem.title) {
                 CachedList.RemoveAt(A_Index)
-                if (Config.Hotkey.HasKey("Save"))
-                    SavePending := FilterMode
-                else
-                    Gosub, SaveSniplets
+                Gosub, SnipletsChanged
                 break
             }
         }
@@ -553,10 +557,10 @@ Tab::
     return
 }
 
-~Up::
-~Down::
+Up::
+Down::
 {
-    if (A_ThisHotkey = "~Up")
+    if (A_ThisHotkey = "Up")
         SelectedIndex := Max(1, SelectedIndex - 1)
     else
         SelectedIndex := Min(ItemList.Length(), SelectedIndex + 1)
@@ -564,7 +568,28 @@ Tab::
     GuiControl, Choose, WindowBox, %SelectedIndex%
     return
 }
-~Esc::
+^Up::
+{
+    if (Config.Sniplets.HasKey(FilterMode) && SelectedIndex >= 1 && SelectedIndex <= ItemList.Length()) {
+        selectedTitle := ItemList[SelectedIndex].title
+        newIndex := 1
+        Loop, % CachedList.MaxIndex()
+        {
+            if (CachedList[A_Index].title = selectedTitle) {
+                movedItem := CachedList.RemoveAt(A_Index)
+                CachedList.InsertAt(newIndex, movedItem)
+                Gosub, SnipletsChanged
+                PresetIndex := SelectedIndex - 1
+                Gosub, UpdateList
+                return
+            }
+            else if (InStr(CachedList[A_Index].title, FilterText, CaseSensitive ? 1 : 0))
+                newIndex := A_Index
+        }
+    }
+    return
+}
+Esc::
 GuiClose:
     MyWindowId := 0
     Gosub, CheckPendingSaves
