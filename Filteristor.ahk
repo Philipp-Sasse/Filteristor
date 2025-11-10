@@ -2,7 +2,7 @@
 
 global MyWindowId := 0
 global Config := {}
-Config.FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf"}
+Config.FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf", "^m":"Media"}
 Config.Launch := {}
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
 Config.Modes := {"Recent": ".", "Word": "i)\.doc[xm]?$", "eXcel": "i)\.xls[xm]?$", "Pdf": "i)\.pdf$"}
@@ -89,7 +89,7 @@ LaunchFilteristor:
     Gui, Show,, Filteristor
     GuiControl, ChooseString, ModeSelector, %FilterMode%
     MyWindowId := WinExist()
-    global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^1"
+    global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^m,^1"
     for hotkey, mode in Config.FilterModes {
         if hotkey not in %PredefinedHotkeys%
         {
@@ -199,6 +199,21 @@ ModeChanged:
             CachedList.Push({path: target, title: displayName})
         }
         Gosub, UpdateList
+     } else if (FilterMode = "Media") {
+        wmp := ComObjCreate("WMPlayer.OCX")
+        mediaCollection := wmp.mediaCollection
+        allItems := mediaCollection.getAll()
+
+        Loop, % allItems.count
+        {
+            item := allItems.Item(A_Index - 1)
+            title := item.getItemInfo("Title")
+            artist := item.getItemInfo("Artist")
+            path := item.sourceURL
+            if (title != "")
+                CachedList.Push({title: title " – " artist, path: path})
+        }
+        Gosub, UpdateList
     } else
         Gosub, UpdateList
     return
@@ -258,7 +273,7 @@ UpdateList:
                 GuiControl,, WindowBox, %cleanTitle%
             }
         }
-    } else if (FilterMode = "Favorites" || FilterMode = "Bookmarks" || Config.Sniplets.HasKey(FilterMode)) {
+    } else if (FilterMode = "Favorites" || FilterMode = "Bookmarks" || FilterMode = "Media" || Config.Sniplets.HasKey(FilterMode)) {
          for index, item in CachedList {
              if InStr(item.title, FilterText) {
                  ItemList.Push(item)
@@ -328,6 +343,11 @@ Selection:
         MyWindowId := 0
         Gui, Destroy
         SendInput, % selectedItem.title
+        return
+    } else if (FilterMode = "Media") {
+        path := selectedItem.path
+        Run, wmplayer.exe "%path%"
+        Gui, Destroy
         return
     } else {
         Run, % selectedItem.path,,, pid
@@ -433,6 +453,7 @@ HandleModeHotkey:
 ^p::
 ^b::
 ^f::
+^m::
     Gosub, HandleModeHotkey
     return
 
