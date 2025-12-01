@@ -2,7 +2,7 @@
 
 global MyWindowId := 0
 global Config := {}
-Config.FilterModes := {"^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf", "^m":"Media"}
+Config.FilterModes := {"^o":"openWindows", "^d":"Directories", "^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf", "^m":"Media"}
 Config.Launch := {}
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
 Config.Modes := {"Recent": ".", "Word": "i)\.doc[xm]?$", "eXcel": "i)\.xls[xm]?$", "Pdf": "i)\.pdf$"}
@@ -25,12 +25,13 @@ Loop
 				Switch, match2 {
 					Case "Launch": Config.Launch[match3] := match5
 					Case "Save": Config.Hotkey["Save"] := match3
+					Case "Class": Config.Classes[match3] := match5
 					Default:
-                        for key, value in Config.FilterModes
-                            if (value = match2) {
-                                Config.FilterModes.Delete(key)
-                                Config.FilterModes[match3] := match2
-                            }
+						for key, value in Config.FilterModes
+							if (value = match2) {
+								Config.FilterModes.Delete(key)
+								Config.FilterModes[match3] := match2
+							}
 				}
 			Case "Mode": {
 				Config.Filtermodes[match3] := match2
@@ -52,9 +53,9 @@ Loop
 	IfMsgBox, No
 		return
 }
-modeList := "openWindows|Directories"
+modeList :=
 for hotkey, mode in Config.FilterModes
-	modeList .= "|" mode
+	modeList .= mode "|"
 Menu, Tray, NoStandard
 Menu, Tray, Add, Help, ShowHelp
 Menu, Tray, Add, Exit, ExitApp
@@ -68,7 +69,7 @@ return
 
 LaunchFilteristor:
 {
-    if (MyWindowId > 0) {
+	if (MyWindowId > 0) {
 		WinActivate, ahk_id %MyWindowId%
 		WinRestore, ahk_id %MyWindowId%
 		Return
@@ -96,8 +97,15 @@ LaunchFilteristor:
 	Gui, Show,, Filteristor
 	GuiControl, ChooseString, ModeSelector, %FilterMode%
 	MyWindowId := WinExist()
-	global PredefinedHotkeys := "^f,^b,^w,^x,^p,^r,^m,^1"
+	global PredefinedHotkeys := "^o,^d,^f,^b,^w,^x,^p,^r,^m,^1"
 	for hotkey, mode in Config.FilterModes {
+		if hotkey not in %PredefinedHotkeys%
+		{
+			Hotkey, %hotkey%, HandleModeHotkey
+			Hotkey, %hotkey%, On
+		}
+	}
+	for hotkey, mode in Config.Classes {
 		if hotkey not in %PredefinedHotkeys%
 		{
 			Hotkey, %hotkey%, HandleModeHotkey
@@ -202,7 +210,7 @@ ModeChanged:
 			displayName := StrReplace(A_LoopFileName, ".lnk", "")
 			CachedList.Push({path: target, title: displayName})
 		}
-	 } else if (FilterMode = "Media") {
+	} else if (FilterMode = "Media") {
 		wmp := ComObjCreate("WMPlayer.OCX")
 		mediaCollection := wmp.mediaCollection
 		allItems := mediaCollection.getAll()
@@ -216,8 +224,10 @@ ModeChanged:
 			if (title != "")
 				CachedList.Push({title: title " / " artist, path: path})
 		}
+	} else  {
+		WindowClassFilter :=
 	}
-    Gosub, UpdateList
+	Gosub, UpdateList
 	return
 }
 ToggleCase:
@@ -260,7 +270,10 @@ UpdateList:
 	GuiControl,, WindowBox, |
 
 	if (FilterMode = "openWindows") {
-		WinGet, idList, List
+		if WindowClassFilter
+			WinGet, idList, List, ahk_class %WindowClassFilter%
+		else
+			WinGet, idList, List
 		Loop, % idList
 		{
 			this_id := idList%A_Index%
@@ -440,6 +453,9 @@ HandleModeHotkey:
 		GuiControl, ChooseString, ModeSelector, %FilterMode%
 		Gosub, ModeChanged
 		return
+	} else if (Config.Classes.HasKey(A_ThisHotkey)) {
+		WindowClassFilter := Config.Classes[A_ThisHotkey]
+		Gosub, UpdateList
 	} else {
 		MsgBox, Unknown hotkey %A_ThisHotkey%
 		return
@@ -447,6 +463,8 @@ HandleModeHotkey:
 	return
 }
 #IfWinActive ahk_class AutoHotkeyGUI
+^o::
+^d::
 ^r::
 ^w::
 ^x::
@@ -456,19 +474,6 @@ HandleModeHotkey:
 ^m::
 	Gosub, HandleModeHotkey
 	return
-
-^o::
-^d::
-{
-	Switch, SubStr(A_ThisHotkey, StrLen(A_ThisHotkey))
-	{
-		Case "o": FilterMode := "openWindows"
-		Case "d": FilterMode := "Directories"
-	}
-	Gosub, UpdateList
-	GuiControl, ChooseString, ModeSelector, %FilterMode%
-	return
-}
 
 ~Enter:: Gosub, selection
 ^1:: Gosub, selection
@@ -552,12 +557,12 @@ Tab::
 			}
 		}
 	} else if (FilterMode = "Favorites") {
-        favLink := favFolder "\" selectedItem.title ".lnk"
-        if FileExist(favLink) {
-            FileDelete, %favLink%
-            Gosub, ModeChanged ; to rebuild CachedList
-        }
-    }
+		favLink := favFolder "\" selectedItem.title ".lnk"
+		if FileExist(favLink) {
+			FileDelete, %favLink%
+			Gosub, ModeChanged ; to rebuild CachedList
+		}
+	}
 	OldSelection := SelectedIndex
 	Gosub, UpdateList
 	SelectedIndex := Min(OldSelection, ItemList.Length())
@@ -581,13 +586,13 @@ Tab::
 			PresetIndex := CachedList.Length()
 		}
 	} else if (Filtermode = "Directories" || Config.Modes.HasKey(FilterMode)) { ; recentItems-based filters
-        if (SelectedIndex >= 1 && SelectedIndex <= ItemList.Length()) {
-            selectedItem := ItemList[SelectedIndex]
-            favLink := favFolder "\" selectedItem.title ".lnk"
-            FileCreateShortcut, % selectedItem.path, %favLink%
-        }
-    }
-    return
+		if (SelectedIndex >= 1 && SelectedIndex <= ItemList.Length()) {
+			selectedItem := ItemList[SelectedIndex]
+			favLink := favFolder "\" selectedItem.title ".lnk"
+			FileCreateShortcut, % selectedItem.path, %favLink%
+		}
+	}
+	return
 }
 
 Up::
@@ -642,6 +647,10 @@ GuiClose:
 	MyWindowId := 0
 	Gosub, CheckPendingSaves
 	for hotkey, mode in Config.FilterModes {
+		if hotkey not in %PredefinedHotkeys%
+			Hotkey, %hotkey%, Off
+	}
+	for hotkey, mode in Config.Classes {
 		if hotkey not in %PredefinedHotkeys%
 			Hotkey, %hotkey%, Off
 	}
