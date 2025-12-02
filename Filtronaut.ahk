@@ -1,23 +1,23 @@
-; the Filteristor switches to windows or opens recent items with given string
+; the Filtronaut switches to windows or opens recent items with given string
 
 global MyWindowId := 0
 global Config := {}
-Config.FilterModes := {"^o":"openWindows", "^d":"Directories", "^f":"Favorites", "^b":"Bookmarks", "^r":"Recent", "^w":"Word", "^x":"eXcel", "^p":"Pdf", "^m":"Media"}
+Config.FilterModes := {"!o":"openWindows", "!d":"Directories", "!f":"Favorites", "!b":"Bookmarks", "!r":"Recent", "!w":"Word", "!x":"eXcel", "!p":"Pdf", "!m":"Media"}
 Config.Launch := {}
 Config.Path["Bookmarks"] := localAppData "\Microsoft\Edge\User Data\Default\Bookmarks"
 Config.Modes := {"Recent": ".", "Word": "i)\.doc[xm]?$", "eXcel": "i)\.xls[xm]?$", "Pdf": "i)\.pdf$"}
-Config.Actions["^1"] := {monitor: 1, dimensions: "x"}
+Config.Actions["!1"] := {monitor: 1, dimensions: "x"}
 Config.Exclude := []
 EnvGet, userProfile, USERPROFILE
 global favFolder := userProfile "\Favorites"
 
-configFile := A_ScriptDir "\Filteristor.config"
+configFile := A_ScriptDir "\Filtronaut.config"
 Loop
 {
 	FileReadLine, line, %configFile%, %A_Index%
 	if ErrorLevel
 		break
-	if RegExMatch(line, "^\s*(\S*) +([^:]*):\s*([^\t]*)(\t+(.*))?$", match)
+	if RegExMatch(line, "^\s*([^# ]\S*) +([^:]*):\s*([^\t]*)(\t+(.*))?$", match)
 	{
 		;MsgBox, Command "%match1%", target "%match2%", key "%match3%", parameter "%match5%"
 		Switch, match1 {
@@ -39,10 +39,10 @@ Loop
 				}
 			Case "Sniplets": {
 				Config.Filtermodes[match3] := match2
-				Config.Sniplets[match2] := match5
+				Config.Sniplets[match2] := ResolvePath(match5)
 			}
 			Case "Monitor": Config.Actions[match3] := {monitor: match2, dimensions: match5}
-			Case "Path": Config.Path[match2] := match3
+			Case "Path": Config.Path[match2] := ResolvePath(match3)
 			Case "Exclude": Config.Exclude.Push({ scope: match2, filter: match3})
 			Default:
 				MsgBox, Unknown command %match1% in line %A_Index%
@@ -62,12 +62,12 @@ Menu, Tray, Add, Exit, ExitApp
 Menu, Tray, Default, Help
 
 if (Config.Launch.Count() = 0)
-	Config.Launch := {"#!f":"openWindows"}
+	Config.Launch := {"!Esc":"openWindows"}
 for hotkey, mode in Config.Launch
-	Hotkey, %hotkey%, LaunchFilteristor
+	Hotkey, %hotkey%, LaunchGUI
 return
 
-LaunchFilteristor:
+LaunchGUI:
 {
 	if (MyWindowId > 0) {
 		WinActivate, ahk_id %MyWindowId%
@@ -94,10 +94,10 @@ LaunchFilteristor:
 	Gui, Add, DropDownList, x+8 yp w120 vModeSelector gModeChanged, %modeList%
 	Gui, Add, Button, x+10 yp w22 h22 gShowHelp, ?
 	Gui, Add, ListBox, x10 y+10 w500 h200 vWindowBox gListBoxChanged
-	Gui, Show,, Filteristor
+	Gui, Show,, Filtronaut
 	GuiControl, ChooseString, ModeSelector, %FilterMode%
 	MyWindowId := WinExist()
-	global PredefinedHotkeys := "^o,^d,^f,^b,^w,^x,^p,^r,^m,^1"
+	global PredefinedHotkeys := "!o,!d,!f,!b,!w,!x,!p,!r,!m,!1"
 	for hotkey, mode in Config.FilterModes {
 		if hotkey not in %PredefinedHotkeys%
 		{
@@ -129,31 +129,32 @@ LaunchFilteristor:
 
 ShowHelp:
 	Gui, -AlwaysOnTop
-	MsgBox, 64, Filteristor Help,
+	MsgBox, 64, Filtronaut Help,
 	(
-Filteristor: Your Friendly Neighborhood Filter Guide
-helps you quickly switch between open windows or launch documents, bookmarks and more.
+The Filtronaut has the filters to navigate you to open windows, recent documents, bookmarks and more.
 
 How to Use:
  - Start typing to filter the list
  - Press Tab to auto-complete
  - Press Down and Up to navigate the list
  - Press Return to run or bring to front the current selection
- - Press Ctrl-1 to maximise the current selection on screen 1 (more keys configurable)
- - Press Shift-Backspace to close the selected window or remove the recent item link or sniplet line
- – Press Ctrl-Plus to add the current filter text to the sniplet collection
- - Press Esc to close the Filteristor
+ - Press Alt-1 to maximise the current selection on screen 1 (more keys configurable)
+ - Press Esc to close the Filtronaut window
 
-Modes & Shortcuts:
- - Ctrl-O to switch between your (O)pen windows (default)
- - Ctrl-F to open one of your (F)avorites
- - Ctrl-B to open one of your (B)ookmarks
- - Ctrl-R to open (R)ecently used documents or directories
- - Ctrl-D to open recently used (D)irectories
- - Ctrl-P to open recently used (P)df documents
- - Ctrl-W to open recently used (W)ord documents
- - Ctrl-X to open recently used e(X)cel sheets
- - Ctrl-C to toggle (C)ase sensitive search
+Modes:
+ - Alt-O to switch between your (O)pen windows (default)
+ - Alt-F to open one of your (F)avorites
+ - Alt-B to open one of your (B)ookmarks
+ - Alt-R to open (R)ecently used documents or directories
+ - Alt-D to open recently used (D)irectories
+ - Alt-P to open recently used (P)df documents
+ - Alt-W to open recently used (W)ord documents
+ - Alt-X to open recently used e(X)cel sheets
+
+Shortcuts:
+ - Alt-C to toggle (C)ase sensitive search
+ - Ctrl-Backspace to close the selected window or remove the recent item link or sniplet line
+ - Ctrl-Plus to add the current filter text to the sniplet collection or item to favorites
  - Ctrl-H to show this beautiful little (H)elp
 )
 	Gui, +AlwaysOnTop
@@ -262,6 +263,19 @@ IsExcluded(item, mode) {
 	}
 	return False
 }
+
+ResolvePath(path) {
+    if RegExMatch(path, "^\.\\")
+        return A_ScriptDir "\" SubStr(path, 3)
+    else if RegExMatch(path, "^~\\")
+    {
+        EnvGet, userProfile, USERPROFILE
+        return userProfile "\" SubStr(path, 3)
+    }
+    else
+        return path
+}
+
 UpdateList:
 {
 	global ItemList, SelectedIndex, CaseSensitive, FilterMode
@@ -279,7 +293,7 @@ UpdateList:
 			this_id := idList%A_Index%
 			WinGetTitle, title, ahk_id %this_id%
 			WinGetClass, class, ahk_id %this_id%
-			if (title != "" && title != "Filteristor" && title != "Program Manager"
+			if (title != "" && title != "Filtronaut" && title != "Program Manager"
 					&& InStr(title, FilterText, CaseSensitive ? 1 : 0)
 					&& class != "PopupHost"
 					&& !IsExcluded(title, FilterMode)) {
@@ -365,10 +379,10 @@ Selection:
 	} else {
 		Run, % selectedItem.path,,, pid
 		if (pid != "") {
-			WinWait, ahk_pid %pid%,, 5
+			WinWait, ahk_pid %pid%,, 4
 			windowId := WinExist("ahk_pid " pid)
 		} else {
-			WinWaitActive,, 5
+			WinWaitActive,,, 4
 			windowId := WinExist("A")
 		}
 	}
@@ -376,7 +390,7 @@ Selection:
 		action := Config.Actions[Hotkey]
 		monitorNr := action.monitor
 		dim := StrSplit(action.dimensions, ",", " ")
-		; MsgBox hotkey %Hotkey%, action %action% --> Config.Actions["^1"] :: %monitorNr% ::: %dim%, 3
+		; MsgBox hotkey %Hotkey%, action %action% --> Config.Actions["!1"] :: %monitorNr% ::: %dim%, 3
 		SysGet, MonitorCount, MonitorCount
 		if (monitorNr <= MonitorCount) {
 			SysGet, Mon, MonitorWorkArea, %monitorNr%
@@ -394,7 +408,7 @@ Selection:
 			if (dim[1] = "x") {
 				WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
 				WinMaximize, ahk_id %windowId%
-			} else if (dim[1] = "z") {
+			} else if (dim[1] = "c") {
 				WinMove, ahk_id %windowId%, , NewX, NewY, WinW, WinH
 			} else if (dim[1] = "%") {
 				NewX := MonLeft + (dim[2] * MonWidth) // 100
@@ -463,22 +477,22 @@ HandleModeHotkey:
 	return
 }
 #IfWinActive ahk_class AutoHotkeyGUI
-^o::
-^d::
-^r::
-^w::
-^x::
-^p::
-^b::
-^f::
-^m::
+!o::
+!d::
+!r::
+!w::
+!x::
+!p::
+!b::
+!f::
+!m::
 	Gosub, HandleModeHotkey
 	return
 
 ~Enter:: Gosub, selection
-^1:: Gosub, selection
+!1:: Gosub, selection
 
-^c::
+!c::
 {
 	CaseSensitive := !CaseSensitive
 	GuiControl,, CaseToggle, % CaseSensitive ? 1 : 0
@@ -524,7 +538,7 @@ Tab::
 		prefix .= nextChar
 	}
 
-	ControlSetText, Edit1, %prefix%, Filteristor
+	ControlSetText, Edit1, %prefix%, Filtronaut
 	SearchInput := prefix
 	return
 }
